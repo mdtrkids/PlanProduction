@@ -1,1 +1,2087 @@
-404: Not Found
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>แผนผลิต – Production Planner</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+  <!-- Library สำหรับสร้างไฟล์ XLSX -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Supabase Client Library -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root{ --primary:#2563eb; --muted:#6b7280; --bg:#f7fafc; --card:#fff; --border:#e5e7eb; --ink:#111827 }
+    *{box-sizing:border-box}
+    html,body{height:100%}ด
+    body{margin:0;font-family:"Sarabun",system-ui,-apple-system,Segoe UI,Roboto;background:var(--bg);color:var(--ink)}
+    header{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--border)}
+    header .bar{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 16px;max-width:1920px;margin:0 auto}
+    h1{font-size:20px;margin:0; white-space: nowrap;}
+    .wrap{max-width:1920px;margin:16px auto;padding:0 24px 80px; transition: max-width 0.3s ease-in-out;}
+    .wrap-dashboard { max-width: 1920px; padding: 0 24px 80px; }
+    .grid{display:grid;gap:12px}
+    .g-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .g-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .grid-2-1{grid-template-columns:2fr 1fr}
+    @media (max-width:980px){.g-2,.g-3,.grid-2-1{grid-template-columns:1fr}}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+    .card h2,.card h3{margin:0 0 8px;padding:12px 14px;border-bottom:1px solid var(--border);font-size:18px}
+    .card .inner{padding:12px 14px}
+    label{font-size:13px;color:var(--muted);display:block;margin-bottom:2px;}
+    input,select{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:#fff}
+    .row{display:grid;grid-template-columns:160px 1fr;gap:10px;align-items:center}
+    .row+.row{margin-top:8px}
+    .btn{appearance:none;border:1px solid var(--primary);background:var(--primary);color:#fff;padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:600}
+    .btn.secondary{background:#fff;color:var(--primary)}
+    .btn.gray{background:#f3f4f6;color:#111;border-color:#e5e7eb}
+    .btn.danger{background:#ef4444;border-color:#ef4444;color:#fff}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .btn.active{outline:2px solid var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.15)}
+    .badge{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid var(--border);background:#fff}
+    .list{display:flex;flex-direction:column;gap:10px;min-height:60px;}
+    .job{border:1px solid var(--border);border-radius:12px;background:#fff;padding:10px; transition: background-color 0.3s, border-color 0.3s;}
+    .job.dragging{opacity:0.5;border-style:dashed;}
+    .jobhead{display:flex;gap:10px;align-items:center;padding-bottom:8px;border-bottom:1px solid var(--border);}
+    .drag{cursor:grab;user-select:none;font-size:18px;line-height:1;padding:2px 8px}
+    .job .title{font-weight:700}
+    .job small{color:var(--muted)}
+    .procwrap{padding:10px 0 0}
+    .proc{border:1px dashed var(--border);border-radius:12px;padding:8px;background:#fdfdfd}
+    .proc+.proc{margin-top:6px;}
+    .proc h4{margin:0 0 4px;font-size:14px}
+    .proc .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+    .proc .timebox{display:grid;grid-template-columns:auto 1fr;gap:6px;align-items:center}
+    .proc .act{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+    .proc .act .btn{padding:6px 10px;border-radius:10px;font-size:12px}
+    .rowcols{display:grid;grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));gap:8px}
+    .rowcols>div{display:flex;flex-direction:column;gap:6px}
+    table{width:100%;border-collapse:separate;border-spacing:0}
+    th,td{padding:4px 6px; border-bottom:1px solid var(--border); text-align:left; vertical-align: middle;}
+    /* --- โค้ดส่วนที่แก้ไขเพื่อล็อคหัวตาราง 2 แถว --- */
+    table { width:100%; border-collapse:separate; border-spacing:0; }
+    th, td { padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; vertical-align: top; }
+    td { font-size: 12px; }
+
+    /* ล็อคแถวที่ 1 (ชื่อแผนก) */
+    #tableDash thead tr:nth-child(1) th {
+        position: sticky;
+        top: 0;
+        z-index: 11;
+        background: #f9fafb !important;
+        box-shadow: inset 0 -1px 0 var(--border);
+    }
+
+    /* ล็อคแถวที่ 2 (สถานะ เริ่ม เสร็จ) */
+    #tableDash thead tr:nth-child(2) th {
+        position: sticky;
+        top: 36px; /* ปรับความสูงตามความเหมาะสม */
+        z-index: 10;
+        background: #f9fafb !important;
+        box-shadow: inset 0 -1px 0 var(--border);
+    }
+
+    /* ล็อคหัวข้อที่ควบ 2 บรรทัด (ใบงาน, เวลาตัด) */
+    #tableDash thead th[rowspan="2"] {
+        top: 0;
+        z-index: 12;
+        background: #f9fafb !important;
+    }
+    td{font-size: 14px;}
+    .dept-divider { border-left: 2px solid #dde4ed; }
+    .cut-time-divider { border-left: 2px solid #dde4ed; }
+    tr:hover td{background:#fafafa}
+    tr.dragging { opacity: 0.4 !important; background: #e0f2fe !important; }
+    tr.dragging td { border-top: 1px solid var(--primary); border-bottom: 1px solid var(--primary); }
+    .drag-over-top td { border-top: 2px solid var(--primary) !important; }
+    .drag-over-bottom td { border-bottom: 2px solid var(--primary) !important; }
+    .drag-handle { cursor: grab; padding-right: 10px; font-size: 16px; color: #9ca3af; }
+    .footerbar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border);padding:8px 12px;display:flex;gap:8px;justify-content:center}
+    .hidden{display:none}
+    .help{font-size:12px;color:var(--muted)}
+    .pill{padding:4px 8px;border-radius:999px;border:1px solid var(--border); font-size:12px; background:#f9fafb;}
+    .right{margin-left:auto}
+    .inline{display:inline-flex;gap:6px;align-items:center}
+    .mini{padding:4px 8px;font-size:12px;border-radius:8px}
+    .toolbar{display:flex;gap:16px;align-items:end;flex-wrap:wrap;margin-bottom:12px}
+    input::placeholder{ color:#9ca3af }
+    .toggle{margin-left:auto}
+    /* --- แก้ไขส่วนนี้เพื่อให้เป็น 4 คอลัมน์บนจอคอม --- */
+.dept-board { 
+  display: grid; 
+  gap: 16px; 
+  grid-template-columns: 1fr; /* มือถือแสดง 1 คอลัมน์ */
+}
+/* เมื่อหน้าจอมีความกว้าง 768px ขึ้นไป (Tablet) ให้แสดง 2 คอลัมน์ */
+@media (min-width: 768px) {
+   .dept-board { 
+      display: grid; 
+      gap: 16px; 
+      grid-template-columns: 1fr; /* มือถือ */
+    }
+    @media (min-width: 768px) {
+      .dept-board { grid-template-columns: repeat(2, 1fr); } /* แท็บเล็ต */
+    }
+    @media (min-width: 1400px) {
+      /* ปรับให้เป็น 4 คอลัมน์เมื่อจอขนาด Desktop 1920 */
+      .dept-board { grid-template-columns: repeat(4, 1fr); } 
+    }
+    .line-container{ padding: 11px; border: 1px solid var(--border); border-radius: 12px; background: #f9fafb; }
+    .line-container h3{ margin: 0 0 10px; font-size: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .line-assign-select { font-size: 11px; padding: 2px 4px; border-radius: 8px; min-width: 60px; }
+    .qty-pills-container { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .status-cell { display: flex; flex-direction: column; align-items: start; gap: 4px; }
+    .nav-group { display: inline-flex; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .nav-group .btn { flex: 1; text-align: center; background: #fff; color: var(--ink); border: none; border-radius: 0; border-left: 1px solid var(--border); font-weight: 600; padding: 8px 16px; }
+    .nav-group .btn:first-child { border-left: none; }
+    .nav-group .btn.active, .nav-group .btn:hover { background: var(--primary); color: #fff; z-index: 1; }
+    .nav-group .btn.active { box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); }
+    .status-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; border: 1px solid transparent; background-color: #f3f4f6; color: #374151; border-color: #e5e7eb; }
+    .status-badge.status-progress { background-color: #e0f2fe; color: #0c4a6e; border-color: #bae6fd; }
+    .status-badge.status-done { background-color: #dcfce7; color: #166534; border-color: #bbf7d0; }
+    tr.status-row-progress td { background-color: #f0f9ff !important; }
+    tr.status-row-done td { background-color: #f0fdf4 !important; }
+    .job.job-card-progress { background-color: #f0f9ff; border-color: #bae6fd; }
+    .job.job-card-done { background-color: #f0fdf4; border-color: #bbf7d0; }
+    .checkbox-cell { width: 40px; text-align: center; }
+    tr.row-selected td { background-color: #fffbeb !important; }
+    .plan-time-hint { color: #9ca3af; font-weight: normal; font-size: 11px; }
+/* --- เพิ่มสีไฮไลท์แยกแผนก --- */
+    .status-done-cell { background-color: #f0fdf4 !important; border-bottom: 1px solid #bbf7d0 !important; } /* สีเขียว */
+    .status-progress-cell { background-color: #f0f9ff !important; border-bottom: 1px solid #bae6fd !important; } /* สีฟ้า */
+    .status-pending-cell { background-color: #ffffff !important; } /* สีขาว */
+
+    /* ปรับแต่งเพื่อให้สีแสดงผลชัดเจนขึ้น */
+    #tableDash td.dept-divider { border-left: 2px solid #dde4ed; }
+    /* --- STYLES FOR TOGGLE SWITCH --- */
+    .toggle-switch-container { display: flex; align-items: center; gap: 8px; }
+    .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+    input:checked + .slider { background-color: var(--primary); }
+    input:checked + .slider:before {
+        transform: translateX(20px);
+    }
+    .lock-badge { padding: 4px 12px; border-radius: 999px; font-weight: bold; display: flex; align-items: center; gap: 6px; font-size: 13px; }
+    .state-locked { background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .state-unlocked { background-color: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .btn.danger-lock { background: #ef4444; border-color: #ef4444; }
+    .job-hidden-by-toggle { display: none !important; }
+#tableDash th, #tableDash td { 
+    vertical-align: middle !important; 
+    text-align: center !important; 
+    font-size: 12px !important; /* บังคับตัวเล็ก */
+}
+
+/* บีบคอลัมน์ชื่อใบงานให้แคบลง */
+#tableDash td:nth-child(2) { 
+    text-align: left !important; 
+    min-width: 120px !important; /* จากเดิม 160px */
+    max-width: 150px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+    
+    .time-display-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0px; /* ลดช่องว่างระหว่างบรรทัดเวลา */
+    line-height: 1.1;
+}
+.time-plan {
+    font-size: 11px !important; /* เล็กลง */
+    color: #9ca3af;
+}
+.time-actual {
+    font-size: 11px !important; /* เล็กลง */
+    color: #2563eb;
+    font-weight: 600;
+}
+
+/* ปรับความกว้างของช่องสถานะ (ตรงที่ Render ใน JavaScript) */
+.status-cell { 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    gap: 2px; 
+    min-width: 65px !important; /* ลดจาก 80px เหลือ 65px */
+}
+
+/* ปรับขนาดตัวเลือก Line (L1, L2...) */
+.dash-line-select { 
+    width: 45px !important; /* ลดจาก 55px เหลือ 45px */
+    height: 18px !important; 
+    font-size: 10px !important; 
+}
+  </style>
+
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <div style="display:flex;align-items:center;gap:10px">
+        <h1>แผนผลิต (Production Planner)</h1>
+        <span class="badge">Ver. 5.0.7</span>
+      </div>
+      <div class="nav-group">
+        <button class="btn" id="btnDashboard">Dashboard (Master Plan)</button>
+        <button class="btn" id="btnDepartments">หน้าแผนก (คิวงาน)</button>
+        <button class="btn" id="btnJobs">ใบงานทั้งหมด</button>
+        <button class="btn" id="btnNewJob">สร้าง/แก้ไขใบงาน</button>
+        <button class="btn" id="btnSettings">ตั้งค่า</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;" class="right">
+        <input id="pass" type="password" placeholder="รหัสผ่าน" style="width:100px;padding:6px 10px;font-size:12px;">
+        <button class="btn mini" id="btnUnlock">ปลดล็อก</button>
+        <div id="lockBadge" class="lock-badge state-locked">
+            <span id="lockIcon">🔒</span> <span id="lockText">ล็อคอยู่</span>
+        </div>
+      </div>
+  </header>
+
+  <div class="wrap">
+    <!-- 1) Job Form (Create / Edit) -->
+    <section class="card hidden" id="viewForm">
+      <h2>สร้าง/แก้ไข ใบงาน</h2>
+      <div class="inner">
+        <div class="grid g-3">
+          <div><label>วันที่</label><input type="date" id="f_date"></div>
+          <div><label>ชื่อใบงาน</label><input type="text" placeholder="เช่น SPTR 24-09 R1" id="f_name"></div>
+          <div><label>เวลาตัดใบงาน</label><input type="time" id="f_cut"></div>
+        </div>
+        <div id="qtyGrid" class="rowcols" style="margin-top:10px"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap">
+          <button class="btn" id="btnAddJob">เพิ่มใบงาน</button>
+          <button class="btn" id="btnSaveJob" style="display:none">บันทึกการแก้ไข</button>
+          <button class="btn gray" id="btnCancelEdit" style="display:none" type="button">ยกเลิก</button>
+          <button class="btn gray" id="btnClearForm" type="button">ล้างแบบฟอร์ม</button>
+          <span class="help right">* ปริมาณ 0 หมายถึงไม่ลงคิวในแผนกนั้น (ยกเว้นแผนก "เบิก" จะดึงจาก STAMP+LASER)</span>
+        </div>
+        <hr style="border-color: var(--border); border-style: dashed; margin: 16px 0;">
+        <div style="display:flex;gap:8px;align-items:center;">
+            <label style="margin:0; font-weight:bold;">นำเข้า/ส่งออก ใบงาน:</label>
+            <button class="btn gray mini" id="btnDownloadTemplateXLSX">Download Template (.xlsx)</button>
+            <label class="btn gray mini" style="cursor:pointer;">Upload ใบงาน (.xlsx)<input type="file" id="fileImportJobsXLSX" class="hidden" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2) Jobs List -->
+    <section class="card hidden" id="viewJobs">
+      <h2>ใบงานทั้งหมด (ค้นหา/แก้ไข/ลบ)</h2>
+      <div class="inner">
+        <div class="toolbar">
+          <div><label>เลือกวัน</label><select id="j_date"></select></div>
+          <div><label>ค้นหาชื่อ</label><input type="text" id="j_search" placeholder="พิมพ์บางส่วนของชื่อ" style="width:260px;"></div>
+          <button class="btn gray" id="j_clear">ล้างตัวกรอง</button>
+          <div class="right">
+            <button class="btn danger hidden" id="j_deleteSelected">ลบรายการที่เลือก (0)</button>
+          </div>
+        </div>
+        <div class="tablewrap" style="overflow-x:auto;max-height:520px;border:1px solid var(--border);border-radius:12px">
+          <table id="tableJobs"><thead><tr>
+            <th class="checkbox-cell"><input type="checkbox" id="j_selectAll"></th>
+            <th style="min-width:160px">ชื่อใบงาน</th>
+            <th>วันที่</th>
+            <th>เวลาตัด</th>
+            <th>จำนวนต่อแผนก</th>
+            <th style="min-width:160px">จัดการ</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3) Department Boards -->
+    <section class="card hidden" id="viewDepartments">
+      <h2>หน้าแผนก (คิวงานตาม Master Plan)</h2>
+      <div class="inner">
+        <div class="toolbar">
+          <div><label>เลือกวัน</label><input type="date" id="dep_date"></div>
+          <div><label>เลือกแผนก</label><select id="dep_filter" style="width:220px;"></select></div>
+          <div class="toggle-switch-container right">
+            <label for="dep_hide_completed">ซ่อนงานที่เสร็จแล้ว</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="dep_hide_completed" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <div id="deptBoards"></div>
+      </div>
+    </section>
+
+    <!-- 4) Dashboard -->
+    <section class="card" id="viewDashboard">
+      <h2>Dashboard & Master Plan</h2>
+      <div class="inner">
+        <div class="toolbar">
+          <div><label>เลือกวัน</label><input type="date" id="d_date"></div>
+          <div class="toggle-switch-container">
+            <label for="d_hide_completed">ซ่อนงานที่เสร็จแล้ว</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="d_hide_completed" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <button class="btn gray right" id="btnDownloadXLSX">Download Excel (แยกแผนก)</button>
+        </div>
+        <div class="help" style="margin:6px 0 12px;">* เวลาแผนจะอัปเดตตาม "เวลาเสร็จจริง" ของงานก่อนหน้า และข้าม "เวลาพัก" ของแต่ละแผนกโดยอัตโนมัติ</div>
+        <div id="kpiBar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;"></div>
+        <div class="tablewrap" style="overflow-x:auto;max-height:60vh;border:1px solid var(--border);border-radius:12px">
+          <table id="tableDash">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section class="card hidden" id="viewSettings">
+      <h2>ตั้งค่า (แผนก • กระบวนการ • เวลามาตรฐาน)</h2>
+      <div class="inner">
+        <div class="grid grid-2-1">
+            <div class="card" style="border-style:dashed">
+              <h3 style="padding:12px 14px;border:0; margin:0">แผนก (เพิ่ม/ลบ/เปลี่ยนชื่อ/จัดลำดับ)</h3>
+              <div id="deptManager" style="margin-top:8px; padding:0 14px 14px;"></div>
+              <div style="padding:0 14px 14px;"><button class="btn mini" id="btnAddDept" style="margin-top:8px;">+ เพิ่มแผนก</button></div>
+            </div>
+            <div class="card" style="border-style:dashed">
+                <h3 style="padding:12px 14px;border:0; margin:0">เวลาเริ่ม-เลิกงาน Default</h3>
+                <div class="grid g-2" style="margin-top:10px; padding:0 14px 14px;">
+                    <div><label>เวลาเริ่มงาน</label><input type="time" id="s_dayStart"></div>
+                    <div><label>เวลาเลิกงาน</label><input type="time" id="s_dayEnd"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="toolbar" style="margin-top:16px; margin-bottom:4px;">
+            <label style="font-weight:bold; font-size:18px; margin:0;">ตั้งค่ารายละเอียดแผนก:</label>
+            <select id="deptSel" style="width:220px;display:inline-block;vertical-align:middle;padding:8px;"></select>
+        </div>
+        <div class="card" style="margin-top:12px;">
+            <div class="inner">
+                <div class="grid">
+                    <div>
+                        <h4 style="margin:0 0 8px;">ขั้นตอนของแผนก</h4>
+                        <div id="procEditor"></div>
+                        <button class="btn mini" id="btnAddProc" style="margin-top:8px;">+ เพิ่มขั้นตอน</button>
+                    </div>
+                </div>
+                <hr style="border-color: var(--border); border-style: dashed; margin: 16px 0;">
+                <div class="grid g-2">
+                    <div>
+                        <h4 style="margin:12px 0 8px">เวลาผลิตขั้นต่ำต่อบิล (นาที)</h4>
+                        <div id="prepEditor"></div>
+                    </div>
+                    <div>
+                        <h4 style="margin:12px 0 8px">จำนวนไลน์การผลิต</h4>
+                        <div id="linesEditor"></div>
+                    </div>
+                </div>
+                <hr style="border-color: var(--border); border-style: dashed; margin: 16px 0;">
+                <div>
+                    <h4 style="margin:0 0 8px;">ช่วงเวลาพัก (เพิ่มได้หลายช่วง)</h4>
+                    <div id="breaksEditor"></div>
+                    <button class="btn mini" id="btnAddBreak" style="margin-top:8px;">+ เพิ่มเวลาพัก</button>
+                </div>
+                <div class="right" style="display: flex; gap: 8px; align-items: center; margin-top: 16px;">
+                  <button class="btn gray" id="btnExportSettingsXLSX">Export Settings (.xlsx)</button>
+                  <label class="btn gray" style="cursor:pointer;">Import Settings (.xlsx)
+                      <input type="file" id="fileImportSettingsXLSX" class="hidden" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                  </label>
+              </div>
+            </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="footerbar">
+    <span class="pill" id="db_status">Connecting to Database...</span>
+  </div>
+
+<script>
+// --- SUPABASE SETUP ---
+const SUPABASE_URL = 'https://scxcuwjhjbkxvqmpywqs.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjeGN1d2poamJreHZxbXB5d3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyODM4NTMsImV4cCI6MjA3NDg1OTg1M30.UqcmQUxCkOxgDxjtUa8Sbb0cLHT26qOuHfdbtdilkI8';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// --- END SUPABASE SETUP ---
+
+const LOCK_PASS = 'TRkids@999';
+let currentDeptSel = null;
+let editingJobId = null;
+let currentView = 'dash';
+let unlocked = false;
+let isDragging = false; 
+let isSavingOrder = false;
+
+const ui = { expand: {} };
+function isExpanded(dept, jobId){ return !!(ui.expand[dept] && ui.expand[dept][jobId]); }
+function setExpanded(dept, jobId, val){ (ui.expand[dept] || (ui.expand[dept] = {}))[jobId] = !!val; }
+
+const defaultModel = () => ({
+  settings:{
+    dayStart:'09:30', dayEnd:'18:30',
+    departments:['เบิก','STAMP','STK','CTT','LASER','TUBE','QC','PACK'],
+    processes:{
+      เบิก:   [{name:'ดึงกระดาษ/อุปกรณ์', type:'per_piece', value:10}],
+      STAMP: [
+        {name:'ออกแบบ', type:'per_piece', value:20},
+        {name:'ยิงหน้ายาง', type:'per_piece', value:25},
+        {name:'รอประกอบ', type:'fixed', value:1800},
+        {name:'ประกอบ', type:'per_piece', value:60}
+      ],
+      STK:   [{name:'ออกแบบ', type:'per_piece', value:10}, {name:'ปริ้น', type:'per_piece', value:15}, {name:'จัดเรียง', type:'per_piece', value:10}],
+      CTT:   [{name:'ออกแบบ', type:'per_piece', value:20}, {name:'ปริ้น', type:'per_piece', value:180}, {name:'จัดเรียง', type:'per_piece', value:10}],
+      LASER: [{name:'ออกแบบ', type:'per_piece', value:20}, {name:'ยิง', type:'per_piece', value:60}, {name:'จัดเรียง', type:'per_piece', value:10}],
+      TUBE:  [{name:'ออกแบบ', type:'per_piece', value:20}, {name:'ปริ้น', type:'per_piece', value:60}, {name:'จัดเรียง', type:'per_piece', value:10}],
+      QC:    [{name:'ตรวจสอบความถูกต้อง', type:'per_piece', value:20}],
+      PACK:  [{name:'ทำใบปะหน้า', type:'per_piece', value:20}, {name:'แพ็ค', type:'per_piece', value:60}]
+    },
+    prepPerJob:{ เบิก:10, STAMP:10, STK:10, CTT:10, LASER:10, TUBE:10, QC:10, PACK:10 },
+    deptBreaks:{
+        เบิก: [{start:'13:00', end:'14:00'}], STAMP: [{start:'13:00', end:'14:00'}], STK: [{start:'13:00', end:'14:00'}], CTT: [{start:'13:00', end:'14:00'}],
+        LASER: [{start:'13:00', end:'14:00'}], TUBE: [{start:'13:00', end:'14:00'}], QC: [{start:'13:00', end:'14:00'}], PACK: [{start:'13:00', end:'14:00'}]
+    },
+    linesPerDept:{ เบิก:1, STAMP:1, STK:1, CTT:1, LASER:1, TUBE:1, QC:1, PACK:1 }
+  },
+  jobs:[]
+});
+
+let state = defaultModel();
+
+// --- DATA HANDLING ---
+async function saveSettings(settingsObject) {
+    el('#db_status').textContent = 'Saving settings...';
+    const { error } = await supabaseClient.from('plan_settings').upsert({ id: 1, data: settingsObject }, { onConflict: 'id' });
+    if (error) {
+        console.error('Error saving settings:', error);
+        el('#db_status').textContent = 'Error saving settings!';
+        alert('เกิดข้อผิดพลาดในการบันทึกการตั้งค่า!');
+    } else {
+        el('#db_status').textContent = 'Database Synced';
+    }
+}
+
+async function load() {
+    try {
+        el('#db_status').textContent = 'Loading data...';
+        const { data: settingsData, error: settingsError } = await supabaseClient.from('plan_settings').select('data').eq('id', 1).single();
+        if (settingsError && settingsError.code !== 'PGRST116') throw new Error('Could not load settings.');
+         const { data: jobsData, error: jobsError } = await supabaseClient.from('plan_jobs').select('*').order('order_index');
+        if (jobsError) throw new Error('Could not load jobs.');
+
+        const loadedState = {
+            settings: settingsData ? settingsData.data : defaultModel().settings,
+            jobs: jobsData || []
+        };
+
+        if (!settingsData) {
+            console.log('No settings found, inserting defaults...');
+            await saveSettings(loadedState.settings);
+        }
+        
+        migrateSettingsForProcessTypes(loadedState.settings);
+        ensureDeptBaseline(loadedState);
+        el('#db_status').textContent = 'Database Synced';
+        return loadedState;
+    } catch (e) {
+        console.error("Critical error during load:", e);
+        el('#db_status').textContent = 'DATABASE FAILED TO LOAD!';
+        alert('ไม่สามารถโหลดข้อมูลจากฐานข้อมูลได้!');
+        return defaultModel();
+    }
+}
+
+
+// --- UTILITY FUNCTIONS ---
+const el = sel=>document.querySelector(sel);
+const cel = (tag,attrs={})=>{const n=document.createElement(tag);for(const k in attrs){if(k==='text')n.textContent=attrs[k];else if(k==='html')n.innerHTML=attrs[k];else n.setAttribute(k,attrs[k]);}return n}
+const pad = n=> String(Math.floor(n)).padStart(2,'0');
+const fmtTime = secs => { 
+    // ปัดเศษวินาทีให้เป็นนาทีที่ใกล้ที่สุดก่อน
+    let totalMinutes = Math.round(secs / 60);
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return `${h} ชม ${m} นาที`; 
+};
+const parseTimeToMin = t => { 
+    if (!t || typeof t !== 'string') return 0; // คืนค่า 0 หากไม่มีข้อมูล
+    const parts = t.split(':'); 
+    if (parts.length < 2) return 0; 
+    const [H, M] = parts.map(Number); 
+    if (Number.isNaN(H) || Number.isNaN(M)) return 0; 
+    return H * 60 + M; 
+};
+const minToHHMM = m => { 
+    const totalMinutes = Math.floor(m); 
+    const hours = Math.floor(totalMinutes / 60); 
+    const minutes = totalMinutes % 60; 
+    return `${pad(hours)}:${pad(minutes)}`; 
+};
+const secToHHMM = s => {
+    if (s === null || s === undefined || isNaN(s) || s === -Infinity || s === Infinity) return '--:--';
+    return minToHHMM(s / 60);
+};
+const nowISO = ()=> new Date().toISOString();
+const sameDay = (d1,d2)=> d1===d2;
+const uid = ()=> 'J'+Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4);
+const fmtLocalHHMM = (iso)=>{ if(!iso) return ''; const d=new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const fmtCutTime = t => (t && t.length >= 5) ? t.substring(0, 5) : (t || '-');
+
+function getEffectiveQty(job, dept) {
+    if (dept === 'เบิก') {
+        return (Number(job.qty['STAMP']) || 0) + (Number(job.qty['LASER']) || 0);
+    }
+    // เพิ่มเงื่อนไขให้ QC ใช้จำนวนเดียวกับ PACK
+    if (dept === 'QC') {
+        return Number(job.qty['PACK']) || 0;
+    }
+    return Number(job.qty[dept]) || 0;
+}
+
+const views = { form: el('#viewForm'), dept: el('#viewDepartments'), dash: el('#viewDashboard'), set: el('#viewSettings'), jobs: el('#viewJobs') };
+const navBtns = { dash: '#btnDashboard', dept: '#btnDepartments', jobs: '#btnJobs', form: '#btnNewJob', set: '#btnSettings' };
+
+function setActive(view){ Object.values(navBtns).forEach(sel=> el(sel).classList.remove('active')); if(navBtns[view]) el(navBtns[view]).classList.add('active'); }
+function show(view){
+    currentView=view;
+    Object.values(views).forEach(v=>v.classList.add('hidden'));
+    views[view].classList.remove('hidden');
+    setActive(view);
+    const wrapper = el('.wrap');
+    if (view === 'dash') wrapper.classList.add('wrap-dashboard');
+    else wrapper.classList.remove('wrap-dashboard');
+    
+    if (view === 'form') {
+      el('#viewForm').querySelectorAll('input, button, select').forEach(elem => {
+        if (!elem.closest('.right')) elem.disabled = !unlocked;
+      });
+    }
+}
+
+function renderQtyGrid(){
+  const host=el('#qtyGrid'); host.innerHTML='';
+  state.settings.departments.forEach(d=>{
+    const box=cel('div');
+    box.innerHTML = `<label>${d} (ชิ้น)</label><input type="number" id="q_${d}" min="0" value="0">`;
+    host.appendChild(box);
+  });
+}
+
+function fillForm(job){
+  el('#f_date').value = job.date;
+  el('#f_name').value = job.name;
+  let cutTime = job.cut || '';
+  if (cutTime && cutTime.length > 5) cutTime = cutTime.substring(0, 5);
+  el('#f_cut').value = cutTime;
+  state.settings.departments.forEach(d=>{ const n=el('#q_'+d); if(n) n.value = job.qty?.[d] ?? 0; });
+}
+function clearForm(){ editingJobId=null; el('#btnAddJob').style.display=''; el('#btnSaveJob').style.display='none'; el('#btnCancelEdit').style.display='none'; el('#f_name').value=''; el('#f_cut').value=''; el('#f_date').value=new Date().toISOString().slice(0,10); state.settings.departments.forEach(d=>{ const n=el('#q_'+d); if(n) n.value=0; }); }
+
+function createJobObject(data) {
+    const safeCut = (data.cut && String(data.cut).trim() !== "") ? String(data.cut).trim() : null;
+    const job = { 
+        id: uid(), date: data.date, name: data.name.trim(), cut: safeCut, qty: data.qty, 
+        tracks: {}, line_assignments: {}, manual_plan_starts: {}, locked_plans: {} 
+    };
+    state.settings.departments.forEach(d => {
+        if (getEffectiveQty(job, d) > 0) {
+            job.tracks[d] = { 'เตรียมไฟล์': { start: null, end: null } };
+            (state.settings.processes[d] || []).forEach(p => job.tracks[d][p.name] = { start: null, end: null });
+            job.line_assignments[d] = 0;
+        }
+    });
+    return job;
+}
+
+// --- CRUD FUNCTIONS ---
+async function addJob(){
+    const date = el('#f_date').value; const name = el('#f_name').value.trim(); const cut = el('#f_cut').value;
+    if(!date||!name){ alert('กรอก วันที่ และ ชื่อใบงาน'); return; }
+
+    const isDuplicate = state.jobs.some(j => j.name === name && j.date === date);
+    if (isDuplicate) {
+        alert(`ตรวจพบบิลซ้ำ: ใบงาน "${name}" ในวันที่ ${date} มีอยู่ในระบบแล้ว`);
+        return;
+    }
+
+    const qty = {}; state.settings.departments.forEach(d=> qty[d] = Number(el('#q_'+d)?.value || 0));
+    const maxOrderIndex = state.jobs.length > 0 ? Math.max(...state.jobs.map(j => j.order_index)) : -1;
+    const newJob = createJobObject({date, name, cut, qty});
+    newJob.order_index = maxOrderIndex + 1;
+    el('#btnAddJob').disabled = true;
+    el('#db_status').textContent = 'Adding job...';
+     const { error } = await supabaseClient.from('plan_jobs').insert([newJob]);
+    if(error){
+        console.error('Error adding job:', error); alert('เกิดข้อผิดพลาดในการเพิ่มใบงาน');
+        el('#db_status').textContent = 'Error!'; el('#btnAddJob').disabled = false; return;
+    }
+    state.jobs.push(newJob);
+    el('#db_status').textContent = 'Database Synced';
+    el('#btnAddJob').disabled = false;
+    renderAll();
+    clearForm();
+    show('jobs');
+}
+
+async function saveJobEdit(){
+    const idx = state.jobs.findIndex(j=>j.id===editingJobId); if(idx<0){ alert('ไม่พบใบงาน'); return; }
+    const jobToUpdate = JSON.parse(JSON.stringify(state.jobs[idx]));
+    jobToUpdate.date = el('#f_date').value;
+    jobToUpdate.name = el('#f_name').value.trim();
+    jobToUpdate.cut = el('#f_cut').value;
+
+    const isDuplicate = state.jobs.some(j => j.name === jobToUpdate.name && j.date === jobToUpdate.date && j.id !== editingJobId);
+    if (isDuplicate) {
+        alert(`ไม่สามารถบันทึกได้: เนื่องจากใบงาน "${jobToUpdate.name}" ในวันที่ ${jobToUpdate.date} มีอยู่แล้วในระบบ`);
+        return;
+    }
+
+    state.settings.departments.forEach(d=>{
+        jobToUpdate.qty[d] = Number(el('#q_'+d)?.value || 0);
+        if(getEffectiveQty(jobToUpdate, d) > 0){
+            jobToUpdate.tracks[d] = jobToUpdate.tracks[d] || { 'เตรียมไฟล์': { start: null, end: null } };
+            (state.settings.processes[d]||[]).forEach(p=>{ if(!jobToUpdate.tracks[d][p.name]) jobToUpdate.tracks[d][p.name]={start:null,end:null}; });
+            if (jobToUpdate.line_assignments[d] == null) jobToUpdate.line_assignments[d] = 0;
+        } else {
+            delete jobToUpdate.tracks[d];
+            delete jobToUpdate.line_assignments[d];
+        }
+    });
+    el('#btnSaveJob').disabled = true;
+    el('#db_status').textContent = 'Saving job...';
+    delete jobToUpdate.created_at;
+    const { error } = await supabaseClient.from('plan_jobs').update(jobToUpdate).eq('id', editingJobId);
+    if(error){
+        console.error('Error saving job edit:', error); alert('เกิดข้อผิดพลาดในการแก้ไขใบงาน');
+        el('#db_status').textContent = 'Error!'; el('#btnSaveJob').disabled = false; return;
+    }
+    state.jobs[idx] = jobToUpdate;
+    el('#db_status').textContent = 'Database Synced';
+    el('#btnSaveJob').disabled = false;
+    renderAll();
+    clearForm();
+    show('jobs');
+}
+
+async function updateJobField(jobId, updates) {
+    el('#db_status').textContent = 'Updating job...';
+    const { data, error } = await supabaseClient
+        .from('plan_jobs')
+        .update(updates)
+        .eq('id', jobId)
+        .select();
+
+    if (error) {
+        console.error('Failed to update job:', error);
+        el('#db_status').textContent = 'Update failed!';
+        alert('บันทึกข้อมูลไม่สำเร็จ! กรุณาลองใหม่อีกครั้ง\n(Error: ' + error.message + ')');
+    } else {
+        el('#db_status').textContent = 'Database Synced';
+    }
+}
+
+function renderJobs(){
+    el('#j_date').disabled = !unlocked;
+    el('#j_search').disabled = !unlocked;
+    el('#j_clear').disabled = !unlocked;
+
+    const tbody = el('#tableJobs tbody'); tbody.innerHTML='';
+    const qDate = el('#j_date').value; const qStr = (el('#j_search').value||'').toLowerCase();
+    state.jobs
+        .filter(j=> !qDate || sameDay(j.date,qDate))
+        .filter(j=> !qStr || j.name.toLowerCase().includes(qStr))
+        .sort((a,b)=> (b.date.localeCompare(a.date)) || (a.order_index - b.order_index))
+        .forEach(j=>{
+            const tr=document.createElement('tr');
+            tr.innerHTML = `<td class="checkbox-cell"><input type="checkbox" class="job-checkbox" data-id="${j.id}" ${!unlocked ? 'disabled' : ''}></td>`;
+            const qtyCell = cel('td');
+            const qtyContainer = cel('div', { class: 'qty-pills-container' });
+            state.settings.departments.forEach(d => {
+                const q = j.qty?.[d] || 0;
+                if (q > 0) qtyContainer.appendChild(cel('span', { class: 'pill', text: `${d}: ${q}` }));
+            });
+            qtyCell.appendChild(qtyContainer);
+            const nameCell = cel('td', { text: j.name });
+            const dateCell = cel('td', { text: j.date });
+            const cutCell = cel('td', { text: fmtCutTime(j.cut) });
+            tr.append(nameCell, dateCell, cutCell, qtyCell);
+            const tdAct = cel('td');
+            tr.appendChild(tdAct);
+            const bEdit = cel('button',{class:'btn mini',text:'แก้ไข'});
+            const bDel = cel('button',{class:'btn mini danger',text:'ลบ'});
+            bEdit.disabled = !unlocked;
+            bDel.disabled = !unlocked;
+            bEdit.onclick=()=>{ editingJobId=j.id; fillForm(j); el('#btnAddJob').style.display='none'; el('#btnSaveJob').style.display=''; el('#btnCancelEdit').style.display=''; show('form'); };
+            bDel.onclick= async ()=>{
+                if(!confirm('ลบใบงานนี้?')) return;
+                el('#db_status').textContent = 'Deleting job...';
+                const { error } = await supabaseClient.from('plan_jobs').delete().eq('id', j.id);
+                if (error) {
+                    alert('เกิดข้อผิดพลาดในการลบ'); el('#db_status').textContent = 'Delete failed!'; return;
+                }
+                state.jobs = state.jobs.filter(x=>x.id!==j.id);
+                el('#db_status').textContent = 'Database Synced';
+                renderAll();
+                show('jobs');
+            };
+            tdAct.append(bEdit,' ',bDel);
+            tbody.appendChild(tr);
+        });
+    setupMultiSelectListeners();
+}
+
+function setupMultiSelectListeners() {
+    const selectAll = el('#j_selectAll');
+    selectAll.disabled = !unlocked;
+    const deleteBtn = el('#j_deleteSelected');
+    const tableBody = el('#tableJobs tbody');
+    const updateDeleteButton = () => {
+        const selected = document.querySelectorAll('.job-checkbox:checked');
+        if (selected.length > 0 && unlocked) {
+            deleteBtn.classList.remove('hidden');
+            deleteBtn.textContent = `ลบรายการที่เลือก (${selected.length})`;
+        } else {
+            deleteBtn.classList.add('hidden');
+        }
+    };
+    tableBody.addEventListener('click', (e) => {
+        if (e.target.classList.contains('job-checkbox')) {
+            const tr = e.target.closest('tr');
+            tr.classList.toggle('row-selected', e.target.checked);
+            updateDeleteButton();
+        }
+    });
+    selectAll.addEventListener('change', () => {
+        document.querySelectorAll('.job-checkbox').forEach(cb => {
+            cb.checked = selectAll.checked;
+            cb.closest('tr').classList.toggle('row-selected', selectAll.checked);
+        });
+        updateDeleteButton();
+    });
+    deleteBtn.onclick = async () => {
+        const selected = document.querySelectorAll('.job-checkbox:checked');
+        if (selected.length === 0 || !confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ ${selected.length} รายการที่เลือก?`)) return;
+        const idsToDelete = Array.from(selected).map(cb => cb.dataset.id);
+        el('#db_status').textContent = `Deleting ${idsToDelete.length} jobs...`;
+        const { error } = await supabaseClient.from('plan_jobs').delete().in('id', idsToDelete);
+        if(error) {
+            alert('เกิดข้อผิดพลาดในการลบ'); el('#db_status').textContent = 'Delete failed!'; return;
+        }
+        state.jobs = state.jobs.filter(job => !idsToDelete.includes(job.id));
+        el('#db_status').textContent = 'Database Synced';
+        renderJobs();
+    };
+    updateDeleteButton();
+}
+
+function initDashboardDnD() {
+    const tableBody = el('#tableDash tbody');
+    let draggedRow = null;
+
+    tableBody.addEventListener('dragstart', e => {
+        if (!unlocked) return;
+        const target = e.target.closest('tr');
+        if (!target.draggable) return;
+        draggedRow = target;
+        isDragging = true;
+        setTimeout(() => draggedRow.classList.add('dragging'), 0);
+    });
+
+    tableBody.addEventListener('dragend', () => {
+        if (draggedRow) draggedRow.classList.remove('dragging');
+        document.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => el.classList.remove('drag-over-top', 'drag-over-bottom'));
+        draggedRow = null;
+        isDragging = false;
+    });
+
+    tableBody.addEventListener('dragover', e => {
+        e.preventDefault();
+        if (!unlocked || !draggedRow) return;
+        
+        const targetRow = e.target.closest('tr');
+        if (!targetRow || targetRow === draggedRow) return;
+
+        document.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => el.classList.remove('drag-over-top', 'drag-over-bottom'));
+        
+        const box = targetRow.getBoundingClientRect();
+        const offset = e.clientY - box.top - box.height / 2;
+        
+        if (offset < 0) {
+            targetRow.classList.add('drag-over-top');
+        } else {
+            targetRow.classList.add('drag-over-bottom');
+        }
+    });
+
+    tableBody.addEventListener('dragleave', e => {
+        const related = e.relatedTarget;
+        if (!related || !e.currentTarget.contains(related)) {
+             document.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => el.classList.remove('drag-over-top', 'drag-over-bottom'));
+        }
+    });
+    
+    tableBody.addEventListener('drop', async e => {
+        e.preventDefault();
+        if (!draggedRow || !unlocked || isSavingOrder) return;
+        
+        const dropTarget = document.querySelector('.drag-over-top, .drag-over-bottom');
+        if (dropTarget) {
+            if (dropTarget.classList.contains('drag-over-top')) {
+                dropTarget.parentNode.insertBefore(draggedRow, dropTarget);
+            } else {
+                 dropTarget.parentNode.insertBefore(draggedRow, dropTarget.nextSibling);
+            }
+        }
+        
+        isSavingOrder = true; // ล็อกการทำงานของ Realtime
+        const date = el('#d_date').value;
+        const orderedIdsOnScreen = [...tableBody.querySelectorAll('tr:not(.job-hidden-by-toggle)')].map(row => row.dataset.id);
+        const allJobsForDate = state.jobs.filter(j => sameDay(j.date, date)).sort((a, b) => a.order_index - b.order_index);
+
+        const hiddenJobs = allJobsForDate.filter(j => !orderedIdsOnScreen.includes(j.id));
+        const newOrderedJobs = [...orderedIdsOnScreen.map(id => allJobsForDate.find(j => j.id === id)), ...hiddenJobs];
+
+        const originalIndices = allJobsForDate.map(j => j.order_index).sort((a,b) => a - b);
+        
+        // 1. Optimistic Update ใน Memory ทันที
+        newOrderedJobs.forEach((job, i) => {
+            job.order_index = originalIndices[i];
+        });
+
+        el('#db_status').textContent = 'Saving sequence...';
+        
+        // 2. ส่งคำสั่งบันทึก (ใช้วิธี Promise.all สำหรับ Batch เล็กๆ จะเร็วกว่าวนลูปทีละตัว)
+        try {
+            const updates = newOrderedJobs.map(job => 
+                supabaseClient.from('plan_jobs').update({ order_index: job.order_index }).eq('id', job.id)
+            );
+            
+            const results = await Promise.all(updates);
+            const error = results.find(r => r.error);
+            if (error) throw error.error;
+
+            el('#db_status').textContent = 'Database Synced';
+        } catch (err) {
+            console.error("Save Order Error:", err);
+            alert("บันทึกลำดับไม่สำเร็จ กรุณารีเฟรชหน้าจอ");
+            state = await load(); // โหลดใหม่ถ้าพลาด
+        } finally {
+            // หน่วงเวลาเล็กน้อยก่อนปลดล็อก เพื่อให้ Realtime ข้ามเหตุการณ์ที่อาจเกิดขึ้นระหว่างบันทึก
+            setTimeout(() => {
+                isSavingOrder = false;
+                renderDashboard();
+            }, 500);
+        }
+    });
+
+    function getDragAfterElement(container, y) {
+        const draggableElements = [...container.querySelectorAll('tr:not(.dragging):not(.job-hidden-by-toggle)')];
+        return draggableElements.reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+                return { offset: offset, element: child };
+            } else {
+                return closest;
+            }
+        }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
+}
+
+// --- CALCULATION AND LOGIC FUNCTIONS ---
+function calcPlanFor(dept, job){
+  const q = getEffectiveQty(job, dept);
+  if(!q) return 0;
+  
+  let processTotalSec = 0;
+  (state.settings.processes[dept]||[]).forEach(p => {
+    if (p.type === 'per_piece') {
+      processTotalSec += (p.value || 0) * q;
+    } else if (p.type === 'fixed') {
+      processTotalSec += (p.value || 0);
+    }
+  });
+  
+  let minSec = (state.settings.prepPerJob?.[dept] || 0) * 60;
+  return Math.max(minSec, processTotalSec);
+}
+
+function procStatus(track){ if(!track?.start && !track?.end) return 'รอดำเนินการ'; if(track?.start && !track?.end) return 'กำลังทำ'; if(track?.end) return 'เสร็จแล้ว'; return 'รอดำเนินการ'; }
+
+// ค้นหาฟังก์ชัน markStart แล้วแทนที่ด้วยโค้ดนี้
+async function markStart(jobId, dept, proc) {
+    const job = state.jobs.find(j => j.id === jobId);
+    if (!job) return;
+    const t = job.tracks?.[dept]?.[proc];
+    if (!t) return;
+    if (t.start && !confirm('มีเวลาเริ่มอยู่แล้ว ต้องการแทนที่?')) return;
+
+    // เช็คว่าเป็น Process แรกสุดที่เริ่มทำหรือไม่ (เพื่อคำนวณแผนล็อค)
+    const isFirstTimestamp = !Object.values(job.tracks[dept] || {}).some(p => p.start || p.end);
+    
+    // ตั้งเวลาเริ่มใน Local State ก่อน
+    t.start = nowISO();
+    
+    const updates = {};
+    updates.tracks = job.tracks;
+
+    if (isFirstTimestamp) {
+        const allTimelines = {};
+        // ลำดับการคำนวณแผนก
+        const computationOrder = ['เบิก', 'STK', 'CTT', 'TUBE', 'STAMP', 'LASER', 'QC', 'PACK'];
+        const allDepts = state.settings.departments;
+        const orderedDepts = [...new Set([...computationOrder, ...allDepts])];
+
+        try {
+            // คำนวณแผนของทุกแผนก
+            orderedDepts.forEach(d => {
+                if (allDepts.includes(d)) {
+                    allTimelines[d] = computePlanTimeline(d, job.date, 'cut', { precomputed: allTimelines });
+                }
+            });
+
+            const currentPlan = allTimelines[dept]?.find(p => p.id === jobId);
+            
+            // ตรวจสอบความถูกต้องของแผนก่อนบันทึก (ป้องกัน NaN)
+            if (currentPlan && 
+                Number.isFinite(currentPlan.start) && 
+                Number.isFinite(currentPlan.end)) {
+                
+                if (!job.locked_plans) job.locked_plans = {};
+                job.locked_plans[dept] = { start: currentPlan.start, end: currentPlan.end };
+                updates.locked_plans = job.locked_plans;
+            }
+        } catch (err) {
+            console.warn("Skipping locked_plans calculation due to error:", err);
+            // ถ้าคำนวณแผนพลาด ให้บันทึกแค่เวลาเริ่ม (tracks) อย่างเดียว งานจะได้ไม่ Reset
+        }
+    }
+
+    // แสดงผล UI ทันที (Optimistic Update)
+    renderDepartments();
+    renderDashboard();
+
+    // ส่งข้อมูลไปบันทึก
+    await updateJobField(jobId, updates);
+}
+
+function markEnd(jobId, dept, proc){
+  const job = state.jobs.find(j=>j.id===jobId); if(!job) return;
+  const t = job.tracks?.[dept]?.[proc]; if(!t) return;
+  if(!t.start && !confirm('ยังไม่กดเริ่ม จะบันทึกเสร็จเลยหรือไม่?')) return;
+  if(!t.start) t.start = nowISO();
+  t.end = nowISO();
+  updateJobField(jobId, { tracks: job.tracks });
+  renderDepartments(); renderDashboard();
+}
+function clearTimes(jobId, dept, proc){
+  const job = state.jobs.find(j=>j.id===jobId); if(!job) return;
+  const t = job.tracks?.[dept]?.[proc]; if(!t) return;
+  t.start=null; t.end=null;
+  updateJobField(jobId, { tracks: job.tracks });
+  renderDepartments(); renderDashboard();
+}
+
+function manualSetTime(jobId, dept, proc, type, timeValue) {
+    const job = state.jobs.find(j => j.id === jobId);
+    if (!job) return;
+    const t = job.tracks?.[dept]?.[proc];
+    if (!t) return;
+    if (!timeValue) {
+        t[type] = null;
+    } else {
+        const [hours, minutes] = timeValue.split(':').map(Number);
+        const date = new Date(job.date);
+        date.setHours(hours, minutes, 0, 0);
+        t[type] = date.toISOString();
+    }
+    updateJobField(jobId, { tracks: job.tracks });
+}
+
+function completeAllAsPlanned(jobId, dept) {
+    if (!confirm('ยืนยันการเสร็จสิ้นทุกขั้นตอนตามเวลาแผน?')) return;
+    const job = state.jobs.find(j => j.id === jobId);
+    if (!job) return;
+    const date = job.date;
+    const tl = computePlanTimeline(dept, date, 'cut');
+    const jobTimeline = tl.find(t => t.id === jobId);
+    if (!jobTimeline) return;
+    const jobPlanStartSec = jobTimeline.start;
+    const procOffsets = calcProcPlanOffsets(dept, job);
+
+    const toISO = (totalSeconds) => {
+        const d = new Date(job.date);
+        d.setHours(0, 0, 0, 0);
+        d.setSeconds(totalSeconds);
+        return d.toISOString();
+    };
+
+    procOffsets.forEach(offset => {
+        if (!job.tracks[dept]) job.tracks[dept] = {};
+        if (!job.tracks[dept][offset.name]) job.tracks[dept][offset.name] = { start: null, end: null };
+        job.tracks[dept][offset.name].start = toISO(jobPlanStartSec + offset.startOff);
+        job.tracks[dept][offset.name].end = toISO(jobPlanStartSec + offset.endOff);
+    });
+
+    updateJobField(jobId, { tracks: job.tracks });
+    renderDepartments();
+    renderDashboard();
+}
+
+function getLatestActualEndSecForDept(job, dept){
+  const tmap = job.tracks?.[dept] || {};
+  let maxEnd = '';
+  Object.values(tmap).forEach(track => { if(track.end && track.end > maxEnd) maxEnd = track.end; });
+  return maxEnd ? (new Date(maxEnd).getTime() - new Date(maxEnd).setHours(0,0,0,0)) / 1000 : 0;
+}
+
+function getEarliestActualStartSecForDept(job, dept) {
+    const tracks = job.tracks?.[dept] || {};
+    let earliestStart = '';
+    Object.values(tracks).forEach(track => {
+        if (track.start && (earliestStart === '' || track.start < earliestStart)) {
+            earliestStart = track.start;
+        }
+    });
+    return earliestStart ? (new Date(earliestStart).getTime() - new Date(earliestStart).setHours(0, 0, 0, 0)) / 1000 : 0;
+}
+
+// --- START NEW HELPERS ---
+function getEffectiveFinishSec(dept, job, date, anchor, precomputed) {
+    const actualEnd = getLatestActualEndSecForDept(job, dept);
+    if (actualEnd > 0) {
+        return actualEnd;
+    }
+    // Note: getPlannedEndSecForDept now requires the precomputed object
+    return getPlannedEndSecForDept(dept, job, date, anchor, { precomputed });
+}
+
+function getPlannedStartSecForDept(dept, job, date, anchor, extraOpts = {}) {
+    const precomputed = extraOpts.precomputed || {};
+    if (!precomputed[dept]) {
+        console.error(`Timeline for ${dept} not precomputed.`);
+        return 0;
+    }
+    const me = precomputed[dept].find(x => x.id === job.id);
+    return me ? me.start : 0;
+}
+// --- END NEW HELPERS ---
+
+function getPlannedEndSecForDept(dept, job, date, anchor, extraOpts = {}) {
+    const precomputed = extraOpts.precomputed || {};
+     if (!precomputed[dept]) {
+        console.error(`Timeline for ${dept} not precomputed.`);
+        return 0;
+    }
+    const me = precomputed[dept].find(x => x.id === job.id);
+    return me ? me.end : 0;
+}
+
+function adjustForBreaks(startSec, durationSec, breakPeriodsSec) {
+    let currentStart = startSec;
+    let endSec = currentStart + durationSec;
+    let adjusted = true;
+    while(adjusted) {
+        adjusted = false;
+        for (const b of breakPeriodsSec) {
+            if (currentStart >= b.start && currentStart < b.end) {
+                currentStart = b.end; adjusted = true;
+            }
+        }
+    }
+    endSec = currentStart + durationSec;
+    for (const b of breakPeriodsSec) {
+        if (currentStart < b.start && endSec > b.start) {
+            endSec += (b.end - b.start);
+        }
+    }
+    return { start: currentStart, end: endSec };
+}
+
+function computePlanTimeline(dept, date, anchor = 'cut', opts = {}) {
+    const lines = Math.max(1, state.settings.linesPerDept?.[dept] || 1);
+    const dayStartSec = parseTimeToMin(state.settings.dayStart) * 60;
+    const breakPeriodsSec = (state.settings.deptBreaks[dept] || []).map(b => ({ start: parseTimeToMin(b.start) * 60, end: parseTimeToMin(b.end) * 60 })).sort((a,b) => a.start - b.start);
+    
+    const jobsOnDate = state.jobs
+        .filter(j => sameDay(j.date, date) && getEffectiveQty(j, dept) > 0)
+        .sort((a, b) => a.order_index - b.order_index);
+
+    const results = [];
+    const lineLastEnd = new Array(lines).fill(dayStartSec);
+
+    jobsOnDate.forEach(j => {
+        const lockedPlan = j.locked_plans ? j.locked_plans[dept] : null;
+        if (lockedPlan) {
+            results.push({ id: j.id, start: lockedPlan.start, end: lockedPlan.end, dur: lockedPlan.end - lockedPlan.start, line: j.line_assignments[dept] || 0 });
+            lineLastEnd[j.line_assignments[dept] || 0] = lockedPlan.end;
+            return; // Skip to the next job
+        }
+
+        const li = j.line_assignments[dept] || 0;
+        let prevEnd = lineLastEnd[li];
+        const prevJobsOnLine = results.filter(r => r.line === li);
+        
+        const jHasActual = Object.values(j.tracks?.[dept] || {}).some(t => t.start || t.end);
+
+        if (prevJobsOnLine.length > 0) {
+            const lastJobOnLineRes = prevJobsOnLine[prevJobsOnLine.length - 1];
+            const lastJobOnLine = state.jobs.find(jb => jb.id === lastJobOnLineRes.id);
+            const actualLastEnd = getLatestActualEndSecForDept(lastJobOnLine, dept);
+
+            const flowDepts = ['QC', 'STAMP', 'LASER'];
+            if (flowDepts.includes(dept)) {
+                // ไหลตามเวลาจริงของคิวก่อนหน้าเสมอ
+                prevEnd = actualLastEnd > 0 ? actualLastEnd : lastJobOnLineRes.end;
+            } else if (jHasActual) {
+                // แก้ไขชื่อตัวแปรจาก lastJobOnLineResult เป็น lastJobOnLineRes ตามที่ Error แจ้ง
+                prevEnd = lastJobOnLineRes.end; 
+            } else {
+                prevEnd = actualLastEnd > 0 ? actualLastEnd : lastJobOnLineRes.end;
+            }
+        }
+
+        let stdDuration = calcPlanFor(dept, j); 
+        const cutSec = j.cut ? (parseTimeToMin(j.cut) * 60) : -Infinity;
+        let base = Math.max(prevEnd, isNaN(cutSec) ? 0 : cutSec);
+        let finalDur = stdDuration;
+
+        // --- START: MODIFIED LOGIC FOR 5-MINUTE CUT TIME DELAY ---
+        const delayDepts = ['เบิก', 'STK', 'CTT', 'TUBE'];
+        
+        if (delayDepts.includes(dept) && cutSec !== -Infinity) {
+            const minCutStartSec = cutSec + 300; // Cut Time + 5 minutes (300 seconds)
+            base = Math.max(base, minCutStartSec); // ต้องเริ่มอย่างน้อย 5 นาทีหลังเวลาตัด
+        }
+        // --- END: MODIFIED LOGIC FOR 5-MINUTE CUT TIME DELAY ---
+        
+        if (j.manual_plan_starts && j.manual_plan_starts[dept]) {
+            base = parseTimeToMin(j.manual_plan_starts[dept]) * 60;
+        } else {
+            // --- NEW RULES IMPLEMENTATION (2024-07-29) ---
+            
+            const precomputed = opts.precomputed || {};
+            // Rule for STAMP & LASER
+            if (['STAMP', 'LASER'].includes(dept)) {
+                // หน่วง 5 นาที หลังเบิกเสร็จ
+                const berkFinishSec = getEffectiveFinishSec('เบิก', j, date, anchor, precomputed);
+                if (berkFinishSec > 0) {
+                    base = Math.max(base, berkFinishSec + 300); // +5 minutes
+                }
+            }
+
+            // Rule for QC
+            if (dept === 'QC') {
+                const precedingDepts = ['STK', 'CTT', 'TUBE', 'STAMP', 'LASER'];
+                const finishTimes = [];
+
+                precedingDepts.forEach(preDept => {
+                    if (getEffectiveQty(j, preDept) > 0) {
+                        const finishSec = getEffectiveFinishSec(preDept, j, date, anchor, precomputed);
+                        if (finishSec > 0) {
+                            finishTimes.push(finishSec);
+                        }
+                    }
+                });
+
+                if (finishTimes.length > 0) {
+                    const firstFinish = Math.min(...finishTimes);
+                    const lastFinish = Math.max(...finishTimes);
+                    
+                    base = Math.max(base, firstFinish + 300); // +5 minutes
+                    
+                    const requiredEndTime = lastFinish + stdDuration;
+                    finalDur = Math.max(stdDuration, requiredEndTime - base);
+                }
+            }
+            
+            // Rule for PACK
+           // Rule for PACK: เช็คทั้งคิวในไลน์เดียวกัน และเวลาจาก QC
+            if (dept === 'PACK') {
+                // 1. หาเวลาเริ่มของ QC (จริงหรือแผน)
+                const qcActStart = getEarliestActualStartSecForDept(j, 'QC');
+                const qcPlanStart = getPlannedStartSecForDept('QC', j, date, anchor, { precomputed });
+                const qcStartSec = qcActStart > 0 ? qcActStart : qcPlanStart;
+
+                // 2. หาเวลาเสร็จของ QC (จริงหรือแผน)
+                const qcFinishSec = getEffectiveFinishSec('QC', j, date, anchor, precomputed);
+
+                if (qcStartSec > 0 && qcFinishSec > 0) {
+                    /* 
+                       base ณ จุดนี้ คือค่าที่มากที่สุดระหว่าง (เวลาเสร็จของงานก่อนหน้าใน Line เดียวกัน) 
+                       หรือ (เวลาตัดใบงาน) ซึ่งถูกคำนวณไว้ก่อนแล้วด้านบน
+                    */
+                    
+                    // ปรับเวลาเริ่ม: ต้องรอคิวก่อนหน้าเสร็จ (base) และต้องผ่านไป 5 นาทีหลัง QC เริ่ม
+                    base = Math.max(base, qcStartSec + 300);
+
+                    // ปรับเวลาเสร็จ: ต้องจบอย่างน้อย 5 นาทีหลังจาก QC เสร็จ
+                    const targetEnd = qcFinishSec + 300;
+                    
+                    // คำนวณความยาวงาน (Duration) ใหม่เพื่อให้เวลาจบไปอยู่ที่ targetEnd
+                    // แต่ต้องไม่น้อยกว่าเวลาผลิตมาตรฐาน (stdDuration)
+                    finalDur = Math.max(stdDuration, targetEnd - base);
+                }
+            }
+         }
+  
+        const { start, end } = adjustForBreaks(base, finalDur, breakPeriodsSec);
+        results.push({ id: j.id, start, end, dur: finalDur, line: li });
+        lineLastEnd[li] = end;
+    });
+    return results;
+}
+
+function calcProcPlanOffsets(dept, job){
+    const q = getEffectiveQty(job, dept);
+    if(!q) return [];
+    
+    let minSec = (state.settings.prepPerJob?.[dept] || 0) * 60;
+    let allSteps = []; 
+    let processTotalSec = 0;
+    
+    (state.settings.processes[dept]||[]).forEach(p => {
+        let duration = 0;
+        if (p.type === 'per_piece') duration = (p.value || 0) * q;
+        else if (p.type === 'fixed') duration = (p.value || 0);
+        allSteps.push({ name: p.name, duration: duration });
+        processTotalSec += duration;
+    });
+    
+    let factor = (processTotalSec > 0 && processTotalSec < minSec) ? (minSec / processTotalSec) : 1;
+    let offs = []; 
+    let cursor = 0;
+    
+    allSteps.forEach(p => { 
+        let adjustedDuration = p.duration * factor;
+        offs.push({ name: p.name, startOff: cursor, endOff: cursor + adjustedDuration }); 
+        cursor += adjustedDuration; 
+    });
+    return offs;
+}
+
+// --- RENDER FUNCTIONS ---
+function applyCompletionFilter() {
+    if (currentView === 'dash') {
+        const toggle = el('#d_hide_completed');
+        if (!toggle) return;
+        const shouldHide = toggle.checked;
+        el('#tableDash tbody').querySelectorAll('tr').forEach(row => {
+            const job = state.jobs.find(j => j.id === row.dataset.id);
+            if (job) row.classList.toggle('job-hidden-by-toggle', shouldHide && getOverallJobStatus(job).key === 'done');
+        });
+    } else if (currentView === 'dept') {
+        const toggle = el('#dep_hide_completed');
+        if (!toggle) return;
+        const shouldHide = toggle.checked;
+        const dept = el('#dep_filter').value;
+        if (!dept || dept === 'ALL') return;
+        el('#deptBoards').querySelectorAll('.job').forEach(card => {
+            const job = state.jobs.find(j => j.id === card.dataset.id);
+            if (job) card.classList.toggle('job-hidden-by-toggle', shouldHide && getJobStatusForDept(job, dept).key === 'done');
+        });
+    }
+}
+
+async function backStep(jobId, dept) {
+    const job = state.jobs.find(j => j.id === jobId);
+    if (!job) return;
+    const procs = (state.settings.processes[dept] || []).map(p => p.name);
+    const tracks = job.tracks[dept] || {};
+    const updates = { tracks: job.tracks };
+
+    let currentIndex = procs.findIndex(p => !tracks[p]?.end);
+    if (currentIndex === -1 && procs.length > 0) {
+        const lastProc = procs[procs.length - 1];
+        if (confirm(`ยกเลิกการเสร็จสิ้นของขั้นตอน "${lastProc}"?`)) {
+            tracks[lastProc].end = null;
+            await updateJobField(jobId, updates);
+            renderDepartments(); renderDashboard();
+        }
+        return;
+    }
+
+    const currentProc = procs[currentIndex];
+    const t = tracks[currentProc] || {};
+
+    if (t.start) {
+        if (confirm(`ล้างเวลาเริ่มของขั้นตอน "${currentProc}"?`)) {
+            const isOnlyStartAction = Object.values(tracks).filter(p => p.start).length === 1 && !Object.values(tracks).some(p => p.end);
+            if (isOnlyStartAction) {
+                if (job.locked_plans && job.locked_plans[dept]) {
+                    delete job.locked_plans[dept];
+                    updates.locked_plans = job.locked_plans;
+                }
+            }
+            tracks[currentProc].start = null;
+            tracks[currentProc].end = null;
+        }
+    } else if (currentIndex > 0) {
+        const prevProc = procs[currentIndex - 1];
+        if (confirm(`ย้อนกลับไปแก้ไขขั้นตอนก่อนหน้า "${prevProc}"?`)) {
+            if (tracks[prevProc]) tracks[prevProc].end = null; 
+        }
+    }
+    await updateJobField(jobId, updates);
+    renderDepartments(); renderDashboard();
+}
+
+function renderDepartments(){
+  const host = el('#deptBoards'); host.innerHTML='';
+  const selDate = el('#dep_date').value || new Date().toISOString().slice(0,10);
+  const selDept = el('#dep_filter').value;
+  
+  if (!selDept || selDept === 'ALL') { 
+    host.innerHTML = '<p class="help" style="padding:40px; text-align:center;">--- กรุณาเลือกแผนกเพื่อเริ่มงาน ---</p>'; 
+    return; 
+  }
+
+  const dept = selDept;
+  const box = cel('div',{class:'card'});
+  const inner = cel('div',{class:'inner'});
+  box.append(cel('div',{ style:'padding:12px 14px; background:#f8fafc; border-bottom:1px solid var(--border);', html:`
+    <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
+      <div><b>แผนก: ${dept}</b></div>
+      <div class="badge">ลำดับงาน: ${(state.settings.processes[dept]||[]).map(p=>p.name).join(' → ')||'-'}</div>
+    </div>`}), inner);
+  const board = cel('div', { class: 'dept-board' });
+  inner.appendChild(board);
+
+  const jobsOnDate = state.jobs
+    .filter(j => sameDay(j.date, selDate) && getEffectiveQty(j, dept) > 0)
+    .sort((a, b) => a.order_index - b.order_index);
+
+  const timeline = computePlanTimeline(dept, selDate, 'cut');
+  const linesCount = Math.max(1, state.settings.linesPerDept?.[dept] || 1);
+  const lineLists = [];
+  for(let i=0; i<linesCount; i++){
+      const lBox = cel('div', { class: 'line-container' });
+      lBox.innerHTML = `<h3>Line ${i + 1}</h3>`;
+      const list = cel('div', { class: 'list' });
+      lBox.appendChild(list);
+      board.appendChild(lBox);
+      lineLists.push(list);
+  }
+
+  jobsOnDate.forEach(j => {
+      const jtl = timeline.find(x => x.id === j.id);
+      const lineIdx = j.line_assignments[dept] || 0;
+      const procs = (state.settings.processes[dept] || []).map(p => p.name);
+      const tracks = j.tracks?.[dept] || {};
+      
+      let currentProc = procs.find(p => !tracks[p]?.end);
+      let isAllDone = procs.length > 0 && !currentProc;
+      const firstProcName = procs[0];
+      const hasStartedFirstStep = !!(tracks[firstProcName] && tracks[firstProcName].start);
+
+      const jobCard = cel('div', { class: 'job', 'data-id': j.id });
+      
+      let controlHtml = '';
+      if (isAllDone) {
+          controlHtml = `<div style="margin-top:10px;"><div style="background:#dcfce7; color:#166534; padding:12px; border-radius:12px; text-align:center; font-weight:bold; border:1px solid #bbf7d0;">✓ เสร็จสมบูรณ์</div><button class="btn" style="width:100%; margin-top:8px; background:#ef4444; color:#fff; border-color:#ef4444;" onclick="backStep('${j.id}','${dept}')">↺ แก้ไข/ย้อนขั้นตอน</button></div>`;
+      } else if (currentProc) {
+          const t = tracks[currentProc] || {};
+          const isStarted = !!t.start;
+          const startTime = t.start ? fmtLocalHHMM(t.start) : '--:--';
+          const mainActionBtn = !isStarted 
+            ? `<button class="btn" style="background:#2563eb; font-size:16px; font-weight:bold; padding:12px 0;" onclick="markStart('${j.id}','${dept}','${currentProc}')">เริ่ม: ${currentProc}</button>`
+            : `<button class="btn" style="background:#16a34a; border-color:#16a34a; font-size:16px; font-weight:bold; padding:12px 0;" onclick="markEnd('${j.id}','${dept}','${currentProc}')">เสร็จ: ${currentProc}</button>`;
+
+          controlHtml = `<div style="margin-top:10px; background:#f8fafc; padding:12px; border-radius:12px; border:1px solid #e2e8f0;"><div style="display:grid; grid-template-columns: 2fr 1fr; gap:8px;">${mainActionBtn}<button class="btn" style="background:#ef4444; color:#fff; border-color:#ef4444; font-size:14px;" ${!hasStartedFirstStep ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} onclick="backStep('${j.id}','${dept}')">ล้าง</button></div><div style="margin-top:8px; font-size:11px; color:#64748b; display:flex; justify-content:space-between; border-top:1px dashed #cbd5e1; padding-top:6px;"><span>เวลาเริ่ม: <b style="color:#2563eb;">${startTime}</b></span><span>สถานะ: <b>${isStarted ? 'กำลังทำ...' : 'รอเริ่ม'}</b></span></div></div>`;
+      }
+
+      jobCard.innerHTML = `<div class="jobhead"><div style="flex:1"><div class="title" style="font-size:18px;">${j.name}</div><small>ตัด: ${fmtCutTime(j.cut)} | Qty: <b>${getEffectiveQty(j, dept)}</b></small></div><button class="btn mini gray toggle">ประวัติ</button></div><div style="padding-top:8px;"><div style="font-size:12px; color:#94a3b8;">แผน: ${jtl ? secToHHMM(jtl.start) : '--:--'} - ${jtl ? secToHHMM(jtl.end) : '--:--'}</div>${controlHtml}<div style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12px;"><span>Line:</span><select class="line-assign-select worker-line-edit" data-job-id="${j.id}" data-dept="${dept}" style="width:60px;"></select></div></div>`;
+
+      const procWrap = cel('div', { class: 'procwrap hidden' });
+      procs.forEach(pName => {
+          const t = tracks[pName] || {};
+          const block = cel('div', { class: 'proc', style: 'margin-bottom:4px; font-size:11px; padding:6px; background:#fff;' });
+          block.innerHTML = `<div style="display:flex; justify-content:space-between;"><b>${pName}</b><span>${t.end ? '✅' : (t.start ? '⏳' : '⚪')}</span></div><div style="color:var(--muted); font-size:10px;">เริ่ม: ${t.start ? fmtLocalHHMM(t.start) : '-'} | เสร็จ: ${t.end ? fmtLocalHHMM(t.end) : '-'}</div>`;
+          procWrap.appendChild(block);
+      });
+      jobCard.appendChild(procWrap);
+      jobCard.querySelector('.toggle').onclick = () => { procWrap.classList.toggle('hidden'); setExpanded(dept, j.id, !procWrap.classList.contains('hidden')); };
+
+      const sel = jobCard.querySelector('.worker-line-edit');
+      for (let i = 0; i < linesCount; i++) {
+          const opt = cel('option', { value: i, text: `${i + 1}` });
+          if (lineIdx === i) opt.selected = true;
+          sel.appendChild(opt);
+      }
+      sel.onchange = async (e) => {
+          const jobObj = state.jobs.find(x => x.id === j.id);
+          if(jobObj){ jobObj.line_assignments[dept] = parseInt(e.target.value); await updateJobField(j.id, { line_assignments: jobObj.line_assignments }); renderDepartments(); }
+      };
+      if (lineLists[lineIdx]) lineLists[lineIdx].appendChild(jobCard);
+  });
+  host.appendChild(box);
+  applyCompletionFilter();
+}
+
+    // ค้นหา function inlineEditTime แล้วแทนที่ด้วยโค้ดนี้ทั้งหมด
+async function inlineEditTime(element, jobId, dept, type, subType) {
+    if (!unlocked) return;
+    const originalValue = element.textContent.trim();
+    const input = cel('input', { 
+        type: 'text', 
+        value: (originalValue === '-' || originalValue === '') ? '' : originalValue,
+        style: 'width: 50px; font-size: 12px; padding: 2px; border: 1px solid var(--primary); outline: none; border-radius: 4px; text-align:center;'
+    });
+    element.innerHTML = '';
+    element.appendChild(input);
+    input.focus(); input.select();
+
+    const save = async () => {
+        let newVal = input.value.trim();
+        if (newVal === originalValue) { element.textContent = originalValue; return; }
+        // แปลงเวลา 4 หลัก (เช่น 0930 -> 09:30)
+        if (newVal !== '' && /^\d{4}$/.test(newVal)) newVal = newVal.substring(0,2) + ':' + newVal.substring(2,4);
+        // ตรวจสอบรูปแบบเวลา
+        if (newVal !== '' && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(newVal)) {
+            alert('รูปแบบเวลาผิด (เช่น 09:30)');
+            element.textContent = originalValue;
+            return;
+        }
+
+        const job = state.jobs.find(j => j.id === jobId);
+        if (!job) return;
+
+        // --- สร้างตัวแปร updates เพื่อรวมฟิลด์ที่จะแก้ไข ---
+        const updates = {};
+
+        if (type === 'cut') {
+            job.cut = newVal;
+            updates.cut = job.cut;
+        } else if (type === 'plan') {
+            if (!job.manual_plan_starts) job.manual_plan_starts = {};
+            if (newVal === '') {
+                delete job.manual_plan_starts[dept];
+            } else {
+                job.manual_plan_starts[dept] = newVal;
+            }
+            updates.manual_plan_starts = job.manual_plan_starts;
+        } else if (type === 'actual') {
+            const procs = (state.settings.processes[dept] || []).map(p => p.name);
+            if (procs.length === 0) return;
+            if (!job.tracks[dept]) job.tracks[dept] = {};
+
+            if (newVal === '') {
+                // กรณีลบเวลาออก (เคลียร์ค่า)
+                if (subType === 'start') {
+                    // 1. ลบเวลาใน tracks
+                    procs.forEach(p => { 
+                        if (job.tracks[dept][p]) { job.tracks[dept][p].start = null; job.tracks[dept][p].end = null; }
+                    });
+
+                    // 2. ลบ locked_plans (แผนที่ถูกล็อคไว้) ออกด้วย เพื่อให้สถานะรีเซ็ตสมบูรณ์
+                    if (job.locked_plans && job.locked_plans[dept]) {
+                        delete job.locked_plans[dept];
+                        updates.locked_plans = job.locked_plans;
+                    }
+
+                } else {
+                    procs.forEach(p => { if (job.tracks[dept][p]) job.tracks[dept][p].end = null; });
+                }
+            } else {
+                // กรณีใส่เวลาใหม่
+                const [h, m] = newVal.split(':').map(Number);
+                const d = new Date(job.date);
+                d.setHours(h, m, 0, 0);
+                const iso = d.toISOString();
+
+                if (subType === 'start') {
+                    const firstProc = procs[0];
+                    if (!job.tracks[dept][firstProc]) job.tracks[dept][firstProc] = { start: null, end: null };
+                    job.tracks[dept][firstProc].start = iso;
+
+                    // --- START: เพิ่มส่วนคำนวณ Locked Plans เมื่อใส่เวลาเริ่ม manual ---
+                    try {
+                        const allTimelines = {};
+                        const computationOrder = ['เบิก', 'STK', 'CTT', 'TUBE', 'STAMP', 'LASER', 'QC', 'PACK'];
+                        const allDepts = state.settings.departments;
+                        const orderedDepts = [...new Set([...computationOrder, ...allDepts])];
+
+                        // คำนวณแผนใหม่ทั้งระบบเพื่อหาเวลา Plan ที่ถูกต้องที่สุด ณ ขณะนั้น
+                        orderedDepts.forEach(dName => {
+                            if (allDepts.includes(dName)) {
+                                allTimelines[dName] = computePlanTimeline(dName, job.date, 'cut', { precomputed: allTimelines });
+                            }
+                        });
+
+                        const currentPlan = allTimelines[dept]?.find(p => p.id === jobId);
+                        
+                        // ถ้าคำนวณได้เวลาแผนที่ถูกต้อง ให้บันทึกลง locked_plans
+                        if (currentPlan && Number.isFinite(currentPlan.start) && Number.isFinite(currentPlan.end)) {
+                            if (!job.locked_plans) job.locked_plans = {};
+                            job.locked_plans[dept] = { start: currentPlan.start, end: currentPlan.end };
+                            updates.locked_plans = job.locked_plans; // ส่งไปบันทึก Supabase
+                        }
+                    } catch (err) {
+                        console.warn("Manual start lock calculation failed:", err);
+                    }
+                    // --- END: จบส่วนคำนวณ Locked Plans ---
+
+                } else {
+                    // กรณีใส่เวลาเสร็จ (End)
+                    procs.forEach(pName => {
+                        if (!job.tracks[dept][pName]) job.tracks[dept][pName] = { start: iso, end: iso };
+                        if (!job.tracks[dept][pName].start) job.tracks[dept][pName].start = iso;
+                        job.tracks[dept][pName].end = iso;
+                    });
+                }
+            }
+            // อัปเดต tracks เสมอ
+            updates.tracks = job.tracks;
+        }
+
+        // ส่งข้อมูลไปบันทึกที่ Supabase
+        await updateJobField(jobId, updates);
+        renderDashboard();
+    };
+    
+    input.onkeydown = (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') element.textContent = originalValue; };
+    input.onblur = save;
+}
+
+function renderDashboard(){ 
+  el('#d_date').disabled = !unlocked;
+  const date = el('#d_date').value || new Date().toISOString().slice(0,10);
+  const thead = el('#tableDash thead'); const tbody = el('#tableDash tbody');
+  
+  // 1. สร้างหัวตาราง
+  let headerHTML = '<tr><th rowspan="2" style="width:20px;"></th><th rowspan="2" style="min-width:160px; text-align:left;">ใบงาน</th><th rowspan="2" class="cut-time-divider" style="text-align:center;">เวลาตัด</th>';
+  state.settings.departments.forEach(d => { headerHTML += `<th colspan="3" class="dept-divider" style="text-align:center;">${d}</th>`; });
+  headerHTML += '</tr><tr>';
+  state.settings.departments.forEach(d => { headerHTML += `<th class="dept-divider" style="text-align:center;">สถานะ</th><th style="text-align:center;">เริ่ม</th><th style="text-align:center;">เสร็จ</th>`; });
+  headerHTML += '</tr>';
+  thead.innerHTML = headerHTML;
+  tbody.innerHTML = '';
+
+  const dayJobs = state.jobs.filter(j=> sameDay(j.date,date)).sort((a, b) => a.order_index - b.order_index);
+
+  // --- START: คำนวณ Timeline สำหรับทุกแผนก (ต้องทำก่อน KPI และตาราง) ---
+  const timelines = {};
+  const computationOrder = ['เบิก', 'STK', 'CTT', 'TUBE', 'STAMP', 'LASER', 'QC', 'PACK'];
+  const allDepts = state.settings.departments;
+  const orderedDepts = [...new Set([...computationOrder, ...allDepts])];
+
+  orderedDepts.forEach(d => {
+      if (allDepts.includes(d)) {
+          timelines[d] = computePlanTimeline(d, date, 'cut', { precomputed: timelines });
+      }
+  });
+  // --- END: คำนวณ Timeline สำหรับทุกแผนก ---
+
+  // 2. KPI Bar (คำนวณเวลาเสร็จ และเวลารวมจากเวลาจริง)
+  el('#kpiBar').innerHTML = state.settings.departments.map(d => {
+      const tl = timelines[d]; // แก้ไขแล้ว: ใช้ตัวแปร timelines ที่คำนวณไว้ด้านบน
+
+      if (!tl || tl.length === 0) return '';
+      let lineSummaries = [];
+      const activeLines = [...new Set(tl.map(x => x.line))].sort((a, b) => a - b);
+      
+      activeLines.forEach(lineIdx => {
+          const lineJobs = tl.filter(x => x.line === lineIdx);
+          const lastRes = lineJobs[lineJobs.length - 1]; 
+          const lastJb = state.jobs.find(j => j.id === lastRes.id);
+          const lastStatus = getJobStatusForDept(lastJb, d);
+          const lastActEnd = getLatestActualEndSecForDept(lastJb, d);
+          
+          const displayEnd = (lastStatus.key === 'done' && lastActEnd > 0) ? lastActEnd : lastRes.end;
+
+          // คำนวณเวลารวม (ถ้าเสร็จแล้วให้ใช้เวลาจริง)
+          const totalDurSeconds = lineJobs.reduce((sum, item) => {
+              const jb = state.jobs.find(j => j.id === item.id);
+              const status = getJobStatusForDept(jb, d);
+              
+              if (status.key === 'done') {
+                  const tracks = jb.tracks?.[d] || {};
+                  const procs = (state.settings.processes[d] || []).map(p => p.name);
+                  let firstStart = Infinity;
+                  let lastEnd = -Infinity;
+                  
+                  procs.forEach(pName => {
+                      if (tracks[pName]?.start) firstStart = Math.min(firstStart, new Date(tracks[pName].start).getTime());
+                      if (tracks[pName]?.end) lastEnd = Math.max(lastEnd, new Date(tracks[pName].end).getTime());
+                  });
+
+                  if (firstStart !== Infinity && lastEnd !== -Infinity) {
+                      return sum + Math.max(0, (lastEnd - firstStart) / 1000);
+                  }
+              }
+              return sum + item.dur;
+          }, 0);
+
+          lineSummaries.push(`L${lineIdx + 1}: <b>${secToHHMM(displayEnd)}</b> <small style="color:#6b7280; font-weight:normal;">(${fmtTime(totalDurSeconds)})</small>`);
+      });
+      return `<span class="pill"><b>${d}</b> • ${lineSummaries.join(' | ')}</span>`;
+  }).filter(html => html !== '').join('');
+
+  // 3. สร้างแถวข้อมูลใบงาน
+  dayJobs.forEach(j=>{
+    const tr = cel('tr', { 'data-id': j.id });
+    tr.draggable = unlocked;
+    tr.innerHTML = `<td class="drag-handle">${unlocked ? '☰' : ''}</td><td style="font-size:14px; font-weight:600; text-align:left;">${j.name}</td><td class="cut-time-divider" style="font-size:14px; text-align:center; cursor:pointer;" ondblclick="inlineEditTime(this, '${j.id}', null, 'cut', null)">${fmtCutTime(j.cut)}</td>`;
+    
+    state.settings.departments.forEach(d=>{
+      const tdStatus = cel('td', {class:'dept-divider'});
+      const tdStart = cel('td'); const tdEnd = cel('td');
+      let clr = 'status-pending-cell';
+
+      if(getEffectiveQty(j, d) > 0){
+        const statusInfo = getJobStatusForDept(j, d);
+        const me = timelines[d].find(x=>x.id===j.id);
+        const { actualStart, actualEnd } = getActualTimesForDept(j, d);
+        const planStartVal = me ? secToHHMM(me.start) : '-';
+        const planEndVal = me ? secToHHMM(me.end) : '-';
+
+        tdStart.innerHTML = `<div class="time-display-wrapper"><div class="time-plan" title="แก้แผนเริ่ม" ondblclick="inlineEditTime(this, '${j.id}', '${d}', 'plan', 'start')">${planStartVal}</div><div class="time-actual" title="แก้เริ่มจริง" ondblclick="inlineEditTime(this, '${j.id}', '${d}', 'actual', 'start')">${actualStart !== '-' ? actualStart : '&nbsp;&nbsp;:&nbsp;&nbsp;'}</div></div>`;
+        tdEnd.innerHTML = `<div class="time-display-wrapper"><div class="time-plan">${planEndVal}</div><div class="time-actual" title="แก้เสร็จจริง" ondblclick="inlineEditTime(this, '${j.id}', '${d}', 'actual', 'end')">${actualEnd !== '-' ? actualEnd : '&nbsp;&nbsp;:&nbsp;&nbsp;'}</div></div>`;
+        
+        const currentLine = (j.line_assignments && j.line_assignments[d] !== undefined) ? j.line_assignments[d] : 0;
+        const totalLines = Math.max(1, (state.settings.linesPerDept && state.settings.linesPerDept[d]) ? state.settings.linesPerDept[d] : 1);
+        let lineOptions = '';
+        for(let i=0; i<totalLines; i++){ lineOptions += `<option value="${i}" ${currentLine == i ? 'selected' : ''}>L${i+1}</option>`; }
+        tdStatus.innerHTML = `<div class="status-cell" style="display:flex; flex-direction:column; align-items:center; gap:2px; min-width:65px;"><span style="font-weight:600; font-size:11px; white-space:nowrap;">${statusInfo.text}</span><select class="dash-line-select" style="width: 55px; height: 22px; font-size: 11px; padding: 0 2px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; cursor: pointer; font-weight: bold; display: block;" data-job-id="${j.id}" data-dept="${d}">${lineOptions}</select></div>`;
+
+        const sel = tdStatus.querySelector('select');
+        sel.onchange = async (e) => {
+            const newLine = parseInt(e.target.value);
+            const jobObj = state.jobs.find(x => x.id === j.id);
+            if(jobObj){
+                if (!jobObj.line_assignments) jobObj.line_assignments = {};
+                jobObj.line_assignments[d] = newLine;
+                await updateJobField(j.id, { line_assignments: jobObj.line_assignments });
+                renderDashboard(); 
+            }
+        };
+        if (statusInfo.key === 'done') clr = 'status-done-cell';
+        else if (statusInfo.key === 'progress') clr = 'status-progress-cell';
+      } else { 
+        clr = 'status-done-cell'; 
+        tdStart.textContent='-'; tdEnd.textContent='-'; tdStatus.textContent='-'; 
+      }
+      [tdStatus, tdStart, tdEnd].forEach(td => { td.classList.add(clr); });
+      tr.append(tdStatus, tdStart, tdEnd);
+    });
+    tbody.appendChild(tr);
+  });
+  initDashboardDnD();
+  applyCompletionFilter();
+}
+
+el('#btnUnlock').onclick = () => {
+    const passInput = el('#pass');
+    const badge = el('#lockBadge');
+    const btn = el('#btnUnlock');
+    const icon = el('#lockIcon');
+    const text = el('#lockText');
+
+    if (!unlocked) {
+        // ขั้นตอนการปลดล็อค
+        if (passInput.value === LOCK_PASS) {
+            unlocked = true;
+            // เปลี่ยนสถานะ UI เป็น ปลดล็อคแล้ว
+            badge.classList.remove('state-locked');
+            badge.classList.add('state-unlocked');
+            icon.textContent = '🔓';
+            text.textContent = 'ปลดล็อคแล้ว';
+            btn.textContent = 'ล็อคระบบ';
+            btn.classList.add('danger'); // เปลี่ยนปุ่มเป็นสีแดงสำหรับสั่งล็อค
+            passInput.value = '';
+            passInput.style.display = 'none'; // ซ่อนช่องรหัส
+            renderAll();
+        } else {
+            alert('รหัสผ่านไม่ถูกต้อง');
+        }
+    } else {
+        // ขั้นตอนการสั่งล็อคกลับ
+        unlocked = false;
+        // เปลี่ยนสถานะ UI กลับเป็น ล็อค
+        badge.classList.remove('state-unlocked');
+        badge.classList.add('state-locked');
+        icon.textContent = '🔒';
+        text.textContent = 'ล็อค';
+        btn.textContent = 'ปลดล็อก';
+        btn.classList.remove('danger');
+        passInput.style.display = 'block'; // แสดงช่องรหัสคืนมา
+        renderAll();
+    }
+};
+
+function migrateSettingsForProcessTypes(settings) {
+    let migrationNeeded = false;
+    Object.values(settings.processes).forEach(procList => { if (procList.length > 0 && procList[0].secPerPiece !== undefined) migrationNeeded = true; });
+    if (!migrationNeeded && settings.waitFixedPerJob === undefined) return;
+    settings.departments.forEach(d => {
+        if (settings.processes[d]) { settings.processes[d].forEach(p => { if (p.secPerPiece !== undefined) { p.value = p.secPerPiece; p.type = 'per_piece'; delete p.secPerPiece; } }); }
+        if (settings.waitFixedPerJob && settings.waitFixedPerJob[d] > 0) {
+            if (!settings.processes[d]) settings.processes[d] = [];
+            settings.processes[d].push({ name: 'Wait Time (เก่า)', type: 'fixed', value: settings.waitFixedPerJob[d] * 60 });
+        }
+    });
+    delete settings.waitFixedPerJob;
+}
+
+function ensureDeptBaseline(s=state){
+  s.settings.departments.forEach(d=>{
+      s.settings.processes[d]=s.settings.processes[d]||[];
+      if(s.settings.prepPerJob[d]==null) s.settings.prepPerJob[d]=10;
+      s.settings.deptBreaks[d]=s.settings.deptBreaks[d]||[];
+      if(s.settings.linesPerDept[d]==null) s.settings.linesPerDept[d]=1;
+  });
+  s.jobs.forEach(j=>{
+    if (j.order_index == null) j.order_index = 0;
+    j.line_assignments = j.line_assignments || {};
+    j.locked_plans = j.locked_plans || {};
+    s.settings.departments.forEach(d=>{ if(!(d in (j.qty||{}))) j.qty[d]=0; });
+  });
+}
+
+function migrateDeptRename(oldName,newName){
+  if(oldName===newName) return;
+  const idx = state.settings.departments.indexOf(oldName); if(idx>-1) state.settings.departments[idx]=newName;
+  ['processes','prepPerJob','deptBreaks','linesPerDept'].forEach(key => { if(state.settings[key][oldName] != null){ state.settings[key][newName] = state.settings[key][oldName]; delete state.settings[key][oldName]; } });
+  state.jobs.forEach(j=>{
+    if(j.qty[oldName]!=null){ j.qty[newName]=j.qty[oldName]; delete j.qty[oldName]; }
+    if(j.tracks?.[oldName]){ j.tracks[newName]=j.tracks[oldName]; delete j.tracks[oldName]; }
+    if(j.line_assignments?.[oldName]){ j.line_assignments[newName]=j.line_assignments[oldName]; delete j.line_assignments[oldName]; }
+  });
+}
+
+function renderDeptManager(){
+  const host=el('#deptManager'); host.innerHTML='';
+  state.settings.departments.forEach((d,i)=>{
+    const row=cel('div',{style:'display:flex;gap:6px;align-items:center;margin-bottom:4px;'});
+    const nameInp=cel('input',{value:d, style:'flex:1;'}); nameInp.disabled=!unlocked;
+    nameInp.onchange= async ()=>{ const nv=nameInp.value.trim()||d; migrateDeptRename(d,nv); await saveSettings(state.settings); renderAll(); };
+    const up=cel('button',{class:'btn mini gray',text:'↑'}); const dn=cel('button',{class:'btn mini gray',text:'↓'}); const del=cel('button',{class:'btn mini danger',text:'ลบ'});
+    [up,dn,del].forEach(b=> b.disabled=!unlocked);
+    up.onclick= async ()=>{ if(i>0){ [state.settings.departments[i-1], state.settings.departments[i]] = [state.settings.departments[i], state.settings.departments[i-1]]; await saveSettings(state.settings); renderAll(); }}
+    dn.onclick= async ()=>{ if(i<state.settings.departments.length-1){ [state.settings.departments[i+1], state.settings.departments[i]] = [state.settings.departments[i], state.settings.departments[i+1]]; await saveSettings(state.settings); renderAll(); }}
+    del.onclick= async ()=>{ if(!confirm(`ลบแผนก ${d}?`)) return; state.settings.departments.splice(i,1); await saveSettings(state.settings); renderAll(); };
+    row.append(nameInp,up,dn,del);
+    host.appendChild(row);
+  });
+}
+el('#btnAddDept').onclick= async ()=>{ if(!unlocked) return alert('ปลดล็อกก่อน'); const name=prompt('ชื่อแผนกใหม่'); if(!name) return; state.settings.departments.push(name.trim()); ensureDeptBaseline(); await saveSettings(state.settings); renderAll(); };
+
+function renderProcessPane(){
+  const sel = el('#deptSel'); sel.innerHTML='';
+  state.settings.departments.forEach(d=>{ const o=cel('option',{value:d,text:d}); sel.appendChild(o); });
+  if(currentDeptSel && state.settings.departments.includes(currentDeptSel)) sel.value=currentDeptSel; else {currentDeptSel=state.settings.departments[0]||null; if(currentDeptSel) sel.value=currentDeptSel;}
+  sel.onchange=()=>{ currentDeptSel = sel.value; drawEditorsForDept(); };
+  drawEditorsForDept();
+}
+
+function drawEditorsForDept() { if (!currentDeptSel) return; drawProcList(); drawPrepAndWaitEditor(); drawLinesAndBreaksEditor(); }
+
+function drawProcList(){
+  const d = currentDeptSel; const procEd = el('#procEditor'); procEd.innerHTML='';
+  const arr = state.settings.processes[d]||[];
+  arr.forEach((p,i)=>{
+    const row=cel('div',{style:'display:grid;grid-template-columns:1fr 140px 140px auto; gap:6px;align-items:center;margin-bottom:6px;'});
+    const nameInp=cel('input',{value:p.name, placeholder: 'ชื่อขั้นตอน'}); nameInp.disabled=!unlocked;
+    nameInp.onchange= async ()=>{ p.name = nameInp.value.trim(); await saveSettings(state.settings); drawEditorsForDept(); };
+    const typeSel = cel('select');
+    typeSel.innerHTML = `<option value="per_piece">ต่อชิ้น</option><option value="fixed">คงที่</option>`;
+    typeSel.value = p.type || 'per_piece';
+    typeSel.disabled=!unlocked;
+    const valueInp=cel('input',{type:'number', value: p.type === 'fixed' ? (p.value/60) : p.value, step:'1', min:'0'});
+    valueInp.disabled=!unlocked;
+    const unitLabel = cel('label', { text: p.type === 'fixed' ? 'นาที (คงที่)' : 'วินาที/ชิ้น' });
+    typeSel.onchange = async () => { p.type = typeSel.value; valueInp.value = 0; p.value = 0; await saveSettings(state.settings); drawEditorsForDept(); };
+    valueInp.onchange= async ()=>{ p.value = p.type === 'fixed' ? (parseFloat(valueInp.value) * 60) : (parseInt(valueInp.value) || 0); await saveSettings(state.settings); };
+    const ctrl=cel('div',{class:'inline'});
+    const up=cel('button',{class:'btn mini gray',text:'↑'}); const dn=cel('button',{class:'btn mini gray',text:'↓'}); const del=cel('button',{class:'btn mini danger',text:'ลบ'});
+    [up,dn,del].forEach(b=> b.disabled=!unlocked);
+    up.onclick= async ()=>{ if(i>0){ [arr[i-1], arr[i]] = [arr[i], arr[i-1]]; await saveSettings(state.settings); drawEditorsForDept(); } };
+    dn.onclick= async ()=>{ if(i<arr.length-1){ [arr[i+1], arr[i]] = [arr[i], arr[i+1]]; await saveSettings(state.settings); drawEditorsForDept(); } };
+    del.onclick= async ()=>{ if(!confirm(`ลบขั้นตอน ${p.name}?`)) return; arr.splice(i,1); await saveSettings(state.settings); drawEditorsForDept(); };
+    ctrl.append(up,dn,del); 
+    const valueWrap = cel('div'); valueWrap.append(valueInp, unitLabel);
+    row.append(nameInp, typeSel, valueWrap, ctrl); 
+    procEd.appendChild(row);
+  });
+}
+
+el('#btnAddProc').onclick= async ()=>{ if(!unlocked) return alert('ปลดล็อกก่อน'); const d=currentDeptSel; const name=prompt('ชื่อขั้นตอนใหม่'); if(!name) return; (state.settings.processes[d]=state.settings.processes[d]||[]).push({name:name.trim(), type:'per_piece', value:0}); await saveSettings(state.settings); drawEditorsForDept(); };
+
+function drawPrepAndWaitEditor() {
+    const d = currentDeptSel; el('#prepEditor').innerHTML = '';
+    const prepInp=cel('input',{type:'number', step:'1', min:'0', value: state.settings.prepPerJob?.[d]||10});
+    prepInp.disabled=!unlocked; prepInp.onchange= async ()=>{ state.settings.prepPerJob[d] = parseFloat(prepInp.value)||10; await saveSettings(state.settings); };
+    el('#prepEditor').appendChild(prepInp);
+}
+
+function drawLinesAndBreaksEditor() {
+    const d = currentDeptSel; el('#linesEditor').innerHTML = '';
+    const linesInp=cel('input',{type:'number', step:'1', min:'1', value: state.settings.linesPerDept?.[d]||1});
+    linesInp.disabled=!unlocked; linesInp.onchange= async ()=>{ state.settings.linesPerDept[d] = parseInt(linesInp.value)||1; await saveSettings(state.settings); };
+    el('#linesEditor').appendChild(linesInp);
+    const breaksHost = el('#breaksEditor'); breaksHost.innerHTML = '';
+    const breaks = state.settings.deptBreaks[d] || [];
+    breaks.forEach((breakItem, i) => {
+        const row = cel('div', { class:'inline', style:'margin-bottom:4px;width:100%;gap:4px;'});
+        const startInp = cel('input', {type:'time', value: breakItem.start});
+        const endInp = cel('input', {type:'time', value: breakItem.end});
+        const delBtn = cel('button', {class:'btn mini danger', text:'ลบ'});
+        [startInp, endInp, delBtn].forEach(el => el.disabled = !unlocked);
+        startInp.onchange = async () => { breakItem.start = startInp.value; await saveSettings(state.settings); };
+        endInp.onchange = async () => { breakItem.end = endInp.value; await saveSettings(state.settings); };
+        delBtn.onclick = async () => { breaks.splice(i, 1); await saveSettings(state.settings); drawLinesAndBreaksEditor(); };
+        row.append(startInp, endInp, delBtn); breaksHost.appendChild(row);
+    });
+}
+el('#btnAddBreak').onclick = async () => { if(!unlocked) return alert('ปลดล็อกก่อน'); const d = currentDeptSel; if(!state.settings.deptBreaks[d]) state.settings.deptBreaks[d] = []; state.settings.deptBreaks[d].push({start: '12:00', end: '13:00'}); await saveSettings(state.settings); drawLinesAndBreaksEditor(); };
+
+function getOverallJobStatus(job) {
+    const relevantDepts = state.settings.departments.filter(d => getEffectiveQty(job, d) > 0);
+    if (relevantDepts.length === 0) return { key: 'pending' };
+    const statuses = relevantDepts.map(d => getJobStatusForDept(job, d).key);
+    if (statuses.every(s => s === 'done')) return { key: 'done' };
+    if (statuses.some(s => s === 'progress')) return { key: 'progress' };
+    return { key: 'pending' };
+}
+
+function getJobStatusForDept(job, dept) {
+    const procs = (state.settings.processes[dept] || []).map(p => p.name);
+    const tracks = job.tracks[dept] || {};
+    if (procs.length === 0) return { text: 'รอดำเนินการ', key: 'pending' };
+    const completedSteps = procs.filter(p => tracks[p]?.end).length;
+    if (completedSteps === procs.length) return { text: 'เสร็จแล้ว', key: 'done' };
+    if (Object.values(tracks).some(t => t.start)) {
+        const currentStep = procs.find(p => tracks[p]?.start && !tracks[p]?.end) || procs.find(p => !tracks[p]?.end);
+        return { text: currentStep || 'กำลังทำ', key: 'progress' };
+    }
+    return { text: 'รอดำเนินการ', key: 'pending' };
+}
+
+function getActualTimesForDept(job, dept) {
+    const tracks = job.tracks?.[dept] || {};
+    const procs = (state.settings.processes[dept] || []).map(p => p.name);
+    let firstStart = null, lastEnd = null, allFinished = procs.length > 0;
+    if (procs.length === 0) return { actualStart: '-', actualEnd: '-' };
+    for (const p of procs) {
+        if (tracks[p]?.start) { const d = new Date(tracks[p].start); if (!firstStart || d < firstStart) firstStart = d; }
+        if (tracks[p]?.end) { const d = new Date(tracks[p].end); if (!lastEnd || d > lastEnd) lastEnd = d; } else { allFinished = false; }
+    }
+    return { actualStart: firstStart ? fmtLocalHHMM(firstStart.toISOString()) : '-', actualEnd: (allFinished && lastEnd) ? fmtLocalHHMM(lastEnd.toISOString()) : '-' };
+}
+
+el('#btnNewJob').onclick = ()=>{ show('form'); };
+el('#btnDepartments').onclick = ()=>{ show('dept'); renderDepartments(); };
+el('#btnDashboard').onclick = ()=>{ show('dash'); renderDashboard(); };
+el('#btnSettings').onclick = ()=>{ show('set'); renderSettings(); };
+el('#btnJobs').onclick = ()=>{ show('jobs'); renderJobs(); };
+el('#btnAddJob').onclick = addJob; el('#btnClearForm').onclick = clearForm; el('#btnSaveJob').onclick = saveJobEdit; el('#btnCancelEdit').onclick = ()=>{ clearForm(); show('jobs'); };
+el('#j_date').onchange = renderJobs; el('#j_search').oninput = renderJobs;
+el('#j_clear').onclick=()=>{ el('#j_date').value=''; el('#j_search').value=''; renderJobs(); };
+el('#dep_date').onchange = renderDepartments; el('#dep_filter').onchange = renderDepartments;
+el('#d_date').onchange = renderDashboard;
+el('#d_hide_completed').onchange = applyCompletionFilter;
+el('#dep_hide_completed').onchange = applyCompletionFilter;
+
+function renderSettings(){
+  renderDeptManager(); renderProcessPane();
+  el('#s_dayStart').value = state.settings.dayStart; el('#s_dayEnd').value = state.settings.dayEnd;
+  el('#s_dayStart').onchange = async () => { state.settings.dayStart = el('#s_dayStart').value; await saveSettings(state.settings); };
+  el('#s_dayEnd').onchange = async () => { state.settings.dayEnd = el('#s_dayEnd').value; await saveSettings(state.settings); };
+  [...document.querySelectorAll('#viewSettings input, #viewSettings select, #viewSettings button')].forEach(e => { if(!e.closest('.right')) e.disabled = !unlocked; });
+}
+
+function populateJobDateFilter() {
+    const sel = el('#j_date'), current = sel.value; sel.innerHTML = '';
+    const dates = [...new Set(state.jobs.map(j => j.date))].sort((a, b) => b.localeCompare(a));
+    sel.add(new Option('-- ทุกวัน --', '')); dates.forEach(d => sel.add(new Option(d, d))); sel.value = current;
+}
+
+function refreshDepFilter(){
+    const sel = el('#dep_filter'), current = sel.value; sel.innerHTML='';
+    sel.appendChild(cel('option',{value:'ALL',text:'-- เลือกแผนก --'}));
+    state.settings.departments.forEach(d=> sel.appendChild(cel('option',{value:d,text:d}))); sel.value = current;
+}
+
+function renderAll(){
+  const keepSel = el('#deptSel')?.value || currentDeptSel;
+  ensureDeptBaseline(); renderQtyGrid(); refreshDepFilter(); populateJobDateFilter();
+  const handlers = { dash: renderDashboard, dept: renderDepartments, jobs: renderJobs, set: renderSettings, form: () => show('form') };
+  if(handlers[currentView]) handlers[currentView]();
+  if (currentView === 'set') {
+    currentDeptSel = keepSel; const sel = el('#deptSel');
+    if (sel && currentDeptSel && [...sel.options].some(o=>o.value===currentDeptSel)) sel.value = currentDeptSel;
+  }
+  setActive(currentView);
+}
+
+// --- XLSX & IMPORT ---
+el('#btnDownloadXLSX').onclick = () => {
+    if (!unlocked) { alert('ปลดล็อกระบบก่อน'); return; }
+    const date = el('#d_date').value || new Date().toISOString().slice(0, 10);
+    const dayJobs = state.jobs.filter(j => sameDay(j.date, date)).sort((a,b) => a.order_index - b.order_index);
+    const wb = XLSX.utils.book_new();
+    const tls = {}; state.settings.departments.forEach(d => { tls[d] = computePlanTimeline(d, date, 'cut'); });
+    
+    state.settings.departments.forEach(dept => {
+        const data = [['ลำดับ', 'ชื่อใบงาน', 'เวลาตัด', 'จำนวน', 'ไลน์', 'สถานะ', 'แผนเริ่ม', 'แผนเสร็จ', 'เริ่มจริง', 'เสร็จจริง']];
+        dayJobs.filter(j => getEffectiveQty(j, dept) > 0).forEach((j, i) => {
+            const status = getJobStatusForDept(j, dept), 
+                  me = tls[dept].find(x => x.id === j.id), 
+                  acts = getActualTimesForDept(j, dept);
+            data.push([i+1, j.name, fmtCutTime(j.cut), getEffectiveQty(j, dept), `Line ${(j.line_assignments[dept]||0)+1}`, status.text, me?secToHHMM(me.start):'-', me?secToHHMM(me.end):'-', acts.actualStart, acts.actualEnd]);
+        });
+        const ws = XLSX.utils.aoa_to_sheet(data); 
+        ws['!cols'] = [{wch:5},{wch:25},{wch:10},{wch:8},{wch:8},{wch:20},{wch:10},{wch:10},{wch:10},{wch:10}];
+        XLSX.utils.book_append_sheet(wb, ws, dept);
+    });
+    XLSX.writeFile(wb, `Plan_${date}.xlsx`);
+};
+
+el('#btnDownloadTemplateXLSX').onclick = () => {
+    const data = [['date', 'name', 'cut', ...state.settings.departments], [new Date().toISOString().slice(0,10), 'JOB-EX-01', '09:30', ...state.settings.departments.map((d,i)=>i===0?100:0)]];
+    const ws = XLSX.utils.aoa_to_sheet(data), wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Jobs Template"); 
+    XLSX.writeFile(wb, `Jobs_Template.xlsx`);
+};
+
+// ฟังก์ชันนำเข้าใบงาน พร้อมระบบตรวจสอบชื่อซ้ำ
+async function importJobsXLSX(file) {
+    if (!unlocked) return alert('ปลดล็อกก่อน');
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "" });
+            if (rows.length < 2) throw new Error("ไฟล์ไม่มีข้อมูล");
+
+            const headerRow = rows[0].map(h => String(h || "").toLowerCase().trim());
+            const colIdx = {
+                date: headerRow.findIndex(h => h.includes('date') || h.includes('วันที่')),
+                name: headerRow.findIndex(h => h.includes('name') || h.includes('ชื่อ')),
+                cut: headerRow.findIndex(h => h.includes('cut') || h.includes('เวลาตัด'))
+            };
+
+            if (colIdx.date === -1 || colIdx.name === -1) throw new Error('หาหัวตาราง "date" หรือ "name" ไม่เจอ');
+
+            const newJobs = []; 
+            let maxIdx = state.jobs.length > 0 ? Math.max(...state.jobs.map(j => j.order_index)) : -1;
+            let skipped = 0;
+
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                const nameVal = String(row[colIdx.name] || "").trim();
+                const dateVal = row[colIdx.date];
+                if (!nameVal || !dateVal) continue;
+
+                let dateStr = "";
+                try {
+                    const d = new Date(dateVal);
+                    // ตรวจสอบว่าคอลัมน์วันที่เป็น Date object จริงหรือไม่ และแปลงเป็น ISO date string
+                    if (d instanceof Date && !isNaN(d.getTime())) {
+                        dateStr = d.toISOString().slice(0, 10);
+                    } else {
+                        dateStr = String(dateVal); // ใช้อันเดิมหากไม่เป็น Date object
+                    }
+                } catch (err) { continue; }
+
+                if (state.jobs.some(j => j.name === nameVal && j.date === dateStr)) { skipped++; continue; }
+
+                const qty = {}; 
+                state.settings.departments.forEach(dept => {
+                    const dIdx = headerRow.findIndex(h => h === dept.toLowerCase().trim());
+                    qty[dept] = dIdx !== -1 ? Number(row[dIdx]) || 0 : 0;
+                });
+                
+                let cutVal = colIdx.cut !== -1 ? row[colIdx.cut] : null;
+
+                // [FIX 1] จัดการแปลงค่าเวลาตัด (cut) จาก Date object ให้เป็น string 'HH:MM'
+                if (cutVal instanceof Date && !isNaN(cutVal.getTime())) {
+                    cutVal = `${pad(cutVal.getHours())}:${pad(cutVal.getMinutes())}`; 
+                } else {
+                    cutVal = String(cutVal || '').trim();
+                }
+
+                if (cutVal === '') cutVal = null; 
+                
+                const job = createJobObject({ date: dateStr, name: nameVal, cut: cutVal, qty });
+                job.order_index = ++maxIdx;
+                newJobs.push(job);
+            }
+
+            if (newJobs.length > 0) {
+                el('#db_status').textContent = `Importing ${newJobs.length} jobs...`;
+                
+                // **[FINAL FIX] แก้ไข: ตัดเฉพาะคีย์ที่ฐานข้อมูลไม่มี (locked_plans, manual_plan_starts) ออกไปก่อน Insert**
+                // **แต่ต้องคง tracks และ line_assignments ไว้**
+                const jobsToInsert = newJobs.map(job => {
+                    // ใช้ Destructuring Assignment เพื่อแยกคีย์ที่ไม่จำเป็นต้องบันทึกในฐานข้อมูลออก
+                    // สันนิษฐานว่าตาราง plan_jobs มีคอลัมน์ id, date, name, cut, qty, tracks, line_assignments, order_index
+                    const { locked_plans, manual_plan_starts, ...insertableData } = job;
+                    return insertableData; 
+                });
+
+                // เพิ่มการตรวจสอบข้อผิดพลาดจากการบันทึก Supabase
+                const { error } = await supabaseClient.from('plan_jobs').insert(jobsToInsert);
+                
+                if (error) {
+                    console.error('Supabase Insert Error:', error);
+                    el('#db_status').textContent = 'Import failed!';
+                    // โยนข้อผิดพลาดออกไปพร้อมรายละเอียดเพิ่มเติม
+                    throw new Error(`Supabase Insert Failed (Status 400): ${error.message} (โปรดตรวจสอบรูปแบบข้อมูลในไฟล์ หรือติดต่อผู้ดูแลเพื่อยืนยัน schema ฐานข้อมูล)`); 
+                }
+
+                // เพิ่มข้อมูลเข้า state.jobs และ renderAll() เมื่อบันทึกสำเร็จเท่านั้น
+                state.jobs.push(...newJobs); 
+                renderAll();
+                el('#db_status').textContent = 'Database Synced';
+                alert(`✅ นำเข้าสำเร็จ ${newJobs.length} รายการ (ซ้ำ ${skipped})`);
+            } else { alert(`❌ ไม่พบใบงานใหม่ (ซ้ำทั้งหมด ${skipped})`); }
+        } catch (err) { 
+            // ลบข้อความซ้ำซ้อนจากข้อผิดพลาดที่โยนมา
+            const cleanMessage = err.message.replace(/(\(\S+\)): /, '').replace('Supabase Insert Failed (Status 400):', '');
+            alert(`Error: ${cleanMessage}`); 
+        }
+        finally { el('#fileImportJobsXLSX').value = ''; }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+// ผูก Event การอัปโหลดไฟล์
+el('#fileImportJobsXLSX').addEventListener('change', (e) => { 
+    if (e.target.files[0]) importJobsXLSX(e.target.files[0]); 
+});
+
+// การเชื่อมต่อ Realtime กับ Database
+function setupRealtimeSubscriptions() {
+    supabaseClient.channel('public:plan_jobs')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'plan_jobs' }, async () => {
+        // เพิ่ม isSavingOrder เข้าไปในเงื่อนไขป้องกันการ Render ซ้อน
+        if (isDragging || isSavingOrder) return; 
+        
+        const { data } = await supabaseClient.from('plan_jobs').select('*').order('order_index');
+        state.jobs = data || []; 
+        if (!document.activeElement || !['INPUT','SELECT'].includes(document.activeElement.tagName)) {
+            renderAll();
+        }
+    }).subscribe();
+}
+
+// เริ่มต้นแอปพลิเคชัน
+async function initializeApp() {
+    state = await load();
+    const today = new Date().toISOString().slice(0,10); 
+    [el('#f_date'), el('#d_date'), el('#dep_date')].forEach(i => i.value = today);
+    renderAll(); 
+    show('dash'); 
+    setupRealtimeSubscriptions();
+}
+
+initializeApp();
+</script>
+</body>
+</html>
