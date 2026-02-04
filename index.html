@@ -417,6 +417,7 @@ let currentView = 'dash';
 let unlocked = false;
 let isDragging = false; 
 let isSavingOrder = false;
+let isUpdatingStatus = false;
 
 const ui = { expand: {} };
 function isExpanded(dept, jobId){ return !!(ui.expand[dept] && ui.expand[dept][jobId]); }
@@ -669,20 +670,26 @@ async function saveJobEdit(){
 }
 
 async function updateJobField(jobId, updates) {
+    isUpdatingStatus = true; // ล็อกไว้ก่อน
     el('#db_status').textContent = 'Updating job...';
+    
     const { data, error } = await supabaseClient
         .from('plan_jobs')
         .update(updates)
-        .eq('id', jobId)
-        .select();
+        .eq('id', jobId);
 
     if (error) {
         console.error('Failed to update job:', error);
         el('#db_status').textContent = 'Update failed!';
-        alert('บันทึกข้อมูลไม่สำเร็จ! กรุณาลองใหม่อีกครั้ง\n(Error: ' + error.message + ')');
+        alert('บันทึกข้อมูลไม่สำเร็จ!');
     } else {
         el('#db_status').textContent = 'Database Synced';
     }
+    
+    // หน่วงเวลาเล็กน้อยเพื่อให้ Database มั่นใจว่าข้อมูลนิ่งแล้วก่อนปลดล็อก
+    setTimeout(() => {
+        isUpdatingStatus = false;
+    }, 1000); 
 }
 
 function renderJobs(){
@@ -2059,14 +2066,19 @@ el('#fileImportJobsXLSX').addEventListener('change', (e) => {
 // การเชื่อมต่อ Realtime กับ Database
 function setupRealtimeSubscriptions() {
     supabaseClient.channel('public:plan_jobs')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'plan_jobs' }, async () => {
-        // เพิ่ม isSavingOrder เข้าไปในเงื่อนไขป้องกันการ Render ซ้อน
-        if (isDragging || isSavingOrder) return; 
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'plan_jobs' }, async (payload) => {
+        // เพิ่มเงื่อนไข isUpdatingStatus เข้าไป
+        if (isDragging || isSavingOrder || isUpdatingStatus) return; 
         
+        console.log('Realtime update detected...');
         const { data } = await supabaseClient.from('plan_jobs').select('*').order('order_index');
-        state.jobs = data || []; 
-        if (!document.activeElement || !['INPUT','SELECT'].includes(document.activeElement.tagName)) {
-            renderAll();
+        
+        if (data) {
+            state.jobs = data; 
+            // เช็คว่าผู้ใช้ไม่ได้กำลังพิมพ์อะไรค้างอยู่ใน Input
+            if (!document.activeElement || !['INPUT','SELECT'].includes(document.activeElement.tagName)) {
+                renderAll();
+            }
         }
     }).subscribe();
 }
