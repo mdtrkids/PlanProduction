@@ -470,29 +470,40 @@ async function saveSettings(settingsObject) {
 async function load() {
     try {
         el('#db_status').textContent = 'Loading data...';
-        const { data: settingsData, error: settingsError } = await supabaseClient.from('plan_settings').select('data').eq('id', 1).single();
-        if (settingsError && settingsError.code !== 'PGRST116') throw new Error('Could not load settings.');
-         const { data: jobsData, error: jobsError } = await supabaseClient.from('plan_jobs').select('*').order('order_index');
-        if (jobsError) throw new Error('Could not load jobs.');
+        
+        const [settingsRes, jobsRes, woRes] = await Promise.all([
+            supabaseClient.from('plan_settings').select('data').eq('id', 1).single(),
+            supabaseClient.from('plan_jobs').select('*').order('order_index'),
+            supabaseClient.from('work_orders').select('work_order_name, status')
+        ]);
+
+        if (settingsRes.error && settingsRes.error.code !== 'PGRST116') {
+            throw new Error('ไม่สามารถโหลดข้อมูล Settings ได้');
+        }
 
         const loadedState = {
-            settings: settingsData ? settingsData.data : defaultModel().settings,
-            jobs: jobsData || []
+            settings: (settingsRes.data && settingsRes.data.data) ? settingsRes.data.data : (settingsRes.data ? settingsRes.data : defaultModel().settings),
+            jobs: jobsRes.data || [],
+            workOrderStatus: woRes.data || []
         };
 
-        if (!settingsData) {
-            console.log('No settings found, inserting defaults...');
+        // ตรวจสอบว่า settings ที่โหลดมามีคอลัมน์สำคัญไหม ถ้าไม่มีให้ใช้ค่าเริ่มต้น
+        if (!loadedState.settings || !loadedState.settings.departments) {
+            loadedState.settings = defaultModel().settings;
+        }
+
+        if (!settingsRes.data) {
             await saveSettings(loadedState.settings);
         }
         
         migrateSettingsForProcessTypes(loadedState.settings);
-        ensureDeptBaseline(loadedState);
+        ensureDeptBaseline(loadedState); 
+        
         el('#db_status').textContent = 'Database Synced';
         return loadedState;
     } catch (e) {
-        console.error("Critical error during load:", e);
-        el('#db_status').textContent = 'DATABASE FAILED TO LOAD!';
-        alert('ไม่สามารถโหลดข้อมูลจากฐานข้อมูลได้!');
+        console.error("Critical error during loading process:", e);
+        el('#db_status').textContent = 'DATABASE FAILED!';
         return defaultModel();
     }
 }
@@ -1722,11 +1733,34 @@ el('#btnUnlock').onclick = () => {
 };
 
 function migrateSettingsForProcessTypes(settings) {
+    // ป้องกัน Error กรณี settings หรือ processes เป็น null/undefined
+    if (!settings || !settings.processes) {
+        if (settings && !settings.processes) settings.processes = {};
+        return;
+    }
+
     let migrationNeeded = false;
-    Object.values(settings.processes).forEach(procList => { if (procList.length > 0 && procList[0].secPerPiece !== undefined) migrationNeeded = true; });
+    // ตรวจสอบข้อมูลก่อนรัน Object.values
+    const processLists = Object.values(settings.processes);
+    
+    processLists.forEach(procList => { 
+        if (Array.isArray(procList) && procList.length > 0 && procList[0].secPerPiece !== undefined) {
+            migrationNeeded = true; 
+        }
+    });
+
     if (!migrationNeeded && settings.waitFixedPerJob === undefined) return;
+
     settings.departments.forEach(d => {
-        if (settings.processes[d]) { settings.processes[d].forEach(p => { if (p.secPerPiece !== undefined) { p.value = p.secPerPiece; p.type = 'per_piece'; delete p.secPerPiece; } }); }
+        if (settings.processes[d]) { 
+            settings.processes[d].forEach(p => { 
+                if (p.secPerPiece !== undefined) { 
+                    p.value = p.secPerPiece; 
+                    p.type = 'per_piece'; 
+                    delete p.secPerPiece; 
+                } 
+            }); 
+        }
         if (settings.waitFixedPerJob && settings.waitFixedPerJob[d] > 0) {
             if (!settings.processes[d]) settings.processes[d] = [];
             settings.processes[d].push({ name: 'Wait Time (เก่า)', type: 'fixed', value: settings.waitFixedPerJob[d] * 60 });
@@ -1734,20 +1768,55 @@ function migrateSettingsForProcessTypes(settings) {
     });
     delete settings.waitFixedPerJob;
 }
+function ensureDeptBaseline(s = state) {
+  // ตรวจสอบโครงสร้างพื้นฐานของ Settings
+  if (!s.settings) s.settings = defaultModel().settings;
+  if (!s.settings.processes) s.settings.processes = {};
+  if (!s.settings.prepPerJob) s.settings.prepPerJob = {};
+  if (!s.settings.deptBreaks) s.settings.deptBreaks = {};
+  if (!s.settings.linesPerDept) s.settings.linesPerDept = {};
 
-function ensureDeptBaseline(s=state){
-  s.settings.departments.forEach(d=>{
-      s.settings.processes[d]=s.settings.processes[d]||[];
-      if(s.settings.prepPerJob[d]==null) s.settings.prepPerJob[d]=10;
-      s.settings.deptBreaks[d]=s.settings.deptBreaks[d]||[];
-      if(s.settings.linesPerDept[d]==null) s.settings.linesPerDept[d]=1;
+  // 1. ตรวจสอบความสมบูรณ์ของโครงสร้างรายแผนก
+  s.settings.departments.forEach(d => {
+    if (!s.settings.processes[d]) s.settings.processes[d] = [];
+    if (s.settings.prepPerJob[d] == null) s.settings.prepPerJob[d] = 10;
+    if (!s.settings.deptBreaks[d]) s.settings.deptBreaks[d] = [];
+    if (s.settings.linesPerDept[d] == null) s.settings.linesPerDept[d] = 1;
   });
-  s.jobs.forEach(j=>{
-    if (j.order_index == null) j.order_index = 0;
-    j.line_assignments = j.line_assignments || {};
-    j.locked_plans = j.locked_plans || {};
-    s.settings.departments.forEach(d=>{ if(!(d in (j.qty||{}))) j.qty[d]=0; });
-  });
+
+  // 2. ตรวจสอบความสมบูรณ์ของใบงาน (Jobs) ทุกใบ
+  if (Array.isArray(s.jobs)) {
+    s.jobs.forEach(j => {
+      if (j.order_index == null) j.order_index = 0;
+      if (!j.line_assignments) j.line_assignments = {};
+      if (!j.tracks) j.tracks = {};
+      if (!j.qty) j.qty = {};
+      if (!j.manual_plan_starts) j.manual_plan_starts = {};
+      if (!j.locked_plans) j.locked_plans = {};
+
+      s.settings.departments.forEach(d => {
+        if (j.qty[d] === undefined) j.qty[d] = 0;
+
+        const q = getEffectiveQty(j, d);
+        if (q > 0) {
+          if (j.line_assignments[d] === undefined) {
+            j.line_assignments[d] = 0;
+          }
+          if (!j.tracks[d]) {
+            j.tracks[d] = {};
+          }
+          const deptProcs = s.settings.processes[d] || [];
+          deptProcs.forEach(proc => {
+            if (!j.tracks[d][proc.name]) {
+              j.tracks[d][proc.name] = { start: null, end: null };
+            }
+          });
+        }
+      });
+    });
+  }
+  
+  console.log("Planner: ระบบซ่อมแซมและเตรียมโครงสร้างข้อมูลเบื้องต้นเรียบร้อยแล้ว");
 }
 
 function migrateDeptRename(oldName,newName){
