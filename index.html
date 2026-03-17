@@ -223,7 +223,7 @@
     <div class="bar">
       <div style="display:flex;align-items:center;gap:10px">
         <h1>แผนผลิต (Production Planner)</h1>
-        <span class="badge">Ver. 5.0.7</span>
+        <span class="badge">Ver. 5.1.0</span>
       </div>
       <div class="nav-group">
         <button class="btn" id="btnDashboard">Dashboard (Master Plan)</button>
@@ -1990,8 +1990,20 @@ el('#j_date').onchange = async () => {
     renderJobs();
 };
 el('#j_clear').onclick=()=>{ el('#j_date').value=''; el('#j_search').value=''; renderJobs(); };
+// 1. เมื่อเปลี่ยนวันที่ในหน้าแผนก
 el('#dep_date').onchange = async () => {
-    state.jobs = await fetchJobsByDate(el('#dep_date').value);
+    const selectedDate = el('#dep_date').value;
+    if (selectedDate) {
+        // โหลดข้อมูลใหม่จาก Database ตามวันที่เลือก
+        state.jobs = await fetchJobsByDate(selectedDate);
+        // สั่งวาดหน้าจอแผนกใหม่
+        renderDepartments();
+    }
+};
+
+// 2. เมื่อเปลี่ยนแผนกในหน้าแผนก (Dropdown ที่คุณวงไว้)
+el('#dep_filter').onchange = () => {
+    // ไม่ต้องโหลดข้อมูลใหม่ (เพราะโหลดตอนเลือกวันแล้ว) แค่สั่งวาด UI ใหม่ตามแผนกที่เลือก
     renderDepartments();
 };
 el('#d_date').onchange = async () => {
