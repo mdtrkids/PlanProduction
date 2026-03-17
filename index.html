@@ -1368,7 +1368,7 @@ function renderDepartments(){
   box.append(cel('div',{ style:'padding:12px 14px; background:#f8fafc; border-bottom:1px solid var(--border);', html:`
     <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
       <div><b>แผนก: ${dept}</b></div>
-      <div class="badge">ลำดับงาน: ${(state.settings.processes[dept]||[]).map(p=>p.name).join(' → ')||'-'}</div>
+      <div class="badge">กดเริ่มเมื่อรับงาน และกดเสร็จเมื่อส่งงาน</div>
     </div>`}), inner);
   const board = cel('div', { class: 'dept-board' });
   inner.appendChild(board);
@@ -1395,29 +1395,47 @@ function renderDepartments(){
       const procs = (state.settings.processes[dept] || []).map(p => p.name);
       const tracks = j.tracks?.[dept] || {};
       
-      let currentProc = procs.find(p => !tracks[p]?.end);
-      let isAllDone = procs.length > 0 && !currentProc;
-      const firstProcName = procs[0];
-      const hasStartedFirstStep = !!(tracks[firstProcName] && tracks[firstProcName].start);
+      // เช็คสถานะรวมของแผนก
+      const hasStartedAny = procs.some(p => tracks[p]?.start);
+      const isAllDone = procs.length > 0 && procs.every(p => tracks[p]?.end);
+      const firstProc = procs[0];
+      const lastProc = procs[procs.length - 1];
 
       const jobCard = cel('div', { class: 'job', 'data-id': j.id });
-      
+      if(isAllDone) jobCard.classList.add('job-card-done');
+      else if(hasStartedAny) jobCard.classList.add('job-card-progress');
+
       let controlHtml = '';
       if (isAllDone) {
-          controlHtml = `<div style="margin-top:10px;"><div style="background:#dcfce7; color:#166534; padding:12px; border-radius:12px; text-align:center; font-weight:bold; border:1px solid #bbf7d0;">✓ เสร็จสมบูรณ์</div><button class="btn" style="width:100%; margin-top:8px; background:#ef4444; color:#fff; border-color:#ef4444;" onclick="backStep('${j.id}','${dept}')">↺ แก้ไข/ย้อนขั้นตอน</button></div>`;
-      } else if (currentProc) {
-          const t = tracks[currentProc] || {};
-          const isStarted = !!t.start;
-          const startTime = t.start ? fmtLocalHHMM(t.start) : '--:--';
-          const mainActionBtn = !isStarted 
-            ? `<button class="btn" style="background:#2563eb; font-size:16px; font-weight:bold; padding:12px 0;" onclick="markStart('${j.id}','${dept}','${currentProc}')">เริ่ม: ${currentProc}</button>`
-            : `<button class="btn" style="background:#16a34a; border-color:#16a34a; font-size:16px; font-weight:bold; padding:12px 0;" onclick="markEnd('${j.id}','${dept}','${currentProc}')">เสร็จ: ${currentProc}</button>`;
-
-          controlHtml = `<div style="margin-top:10px; background:#f8fafc; padding:12px; border-radius:12px; border:1px solid #e2e8f0;"><div style="display:grid; grid-template-columns: 2fr 1fr; gap:8px;">${mainActionBtn}<button class="btn" style="background:#ef4444; color:#fff; border-color:#ef4444; font-size:14px;" ${!hasStartedFirstStep ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} onclick="backStep('${j.id}','${dept}')">ล้าง</button></div><div style="margin-top:8px; font-size:11px; color:#64748b; display:flex; justify-content:space-between; border-top:1px dashed #cbd5e1; padding-top:6px;"><span>เวลาเริ่ม: <b style="color:#2563eb;">${startTime}</b></span><span>สถานะ: <b>${isStarted ? 'กำลังทำ...' : 'รอเริ่ม'}</b></span></div></div>`;
+          controlHtml = `<div style="margin-top:10px;"><div style="background:#dcfce7; color:#166534; padding:12px; border-radius:12px; text-align:center; font-weight:bold; border:1px solid #bbf7d0;">✓ งานเสร็จสมบูรณ์</div><button class="btn" style="width:100%; margin-top:8px; background:#ef4444; color:#fff; border-color:#ef4444;" onclick="backStep('${j.id}','${dept}')">↺ แก้ไข/ยกเลิกเวลา</button></div>`;
+      } else {
+          if (!hasStartedAny) {
+              // ปุ่มเริ่มงาน (จะไป Start ขั้นตอนแรกสุด)
+              controlHtml = `<div style="margin-top:10px;"><button class="btn" style="width:100%; background:#2563eb; font-size:18px; font-weight:bold; padding:14px 0;" onclick="markStart('${j.id}','${dept}','${firstProc}')">▶ เริ่มงาน (START)</button></div>`;
+          } else {
+              // ปุ่มจบงาน (จะไป End ขั้นตอนสุดท้าย และ Auto-fill ขั้นตอนที่เหลือ)
+              controlHtml = `<div style="margin-top:10px;"><button class="btn" style="width:100%; background:#16a34a; border-color:#16a34a; font-size:18px; font-weight:bold; padding:14px 0;" onclick="finishFullDeptJob('${j.id}','${dept}')">■ เสร็จงาน (FINISH)</button></div>`;
+          }
       }
 
-      jobCard.innerHTML = `<div class="jobhead"><div style="flex:1"><div class="title" style="font-size:18px;">${j.name}</div><small>ตัด: ${fmtCutTime(j.cut)} | Qty: <b>${getEffectiveQty(j, dept)}</b></small></div><button class="btn mini gray toggle">ประวัติ</button></div><div style="padding-top:8px;"><div style="font-size:12px; color:#94a3b8;">แผน: ${jtl ? secToHHMM(jtl.start) : '--:--'} - ${jtl ? secToHHMM(jtl.end) : '--:--'}</div>${controlHtml}<div style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12px;"><span>Line:</span><select class="line-assign-select worker-line-edit" data-job-id="${j.id}" data-dept="${dept}" style="width:60px;"></select></div></div>`;
+      jobCard.innerHTML = `
+        <div class="jobhead">
+            <div style="flex:1">
+                <div class="title" style="font-size:18px;">${j.name}</div>
+                <small>ตัด: ${fmtCutTime(j.cut)} | Qty: <b>${getEffectiveQty(j, dept)}</b></small>
+            </div>
+            <button class="btn mini gray toggle">ดูขั้นตอน</button>
+        </div>
+        <div style="padding-top:8px;">
+            <div style="font-size:12px; color:#94a3b8;">แผน: ${jtl ? secToHHMM(jtl.start) : '--:--'} - ${jtl ? secToHHMM(jtl.end) : '--:--'}</div>
+            ${controlHtml}
+            <div style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12px;">
+                <span>Line:</span>
+                <select class="line-assign-select worker-line-edit" data-job-id="${j.id}" data-dept="${dept}"></select>
+            </div>
+        </div>`;
 
+      // ส่วนแสดงประวัติขั้นตอน (เผื่ออยากดูเฉยๆ)
       const procWrap = cel('div', { class: 'procwrap hidden' });
       procs.forEach(pName => {
           const t = tracks[pName] || {};
@@ -1426,7 +1444,7 @@ function renderDepartments(){
           procWrap.appendChild(block);
       });
       jobCard.appendChild(procWrap);
-      jobCard.querySelector('.toggle').onclick = () => { procWrap.classList.toggle('hidden'); setExpanded(dept, j.id, !procWrap.classList.contains('hidden')); };
+      jobCard.querySelector('.toggle').onclick = () => { procWrap.classList.toggle('hidden'); };
 
       const sel = jobCard.querySelector('.worker-line-edit');
       for (let i = 0; i < linesCount; i++) {
@@ -1442,6 +1460,36 @@ function renderDepartments(){
   });
   host.appendChild(box);
   applyCompletionFilter();
+}
+
+async function finishFullDeptJob(jobId, dept) {
+    const job = state.jobs.find(j => j.id === jobId);
+    if (!job) return;
+    
+    const procs = (state.settings.processes[dept] || []).map(p => p.name);
+    const now = nowISO();
+    
+    if (!job.tracks[dept]) job.tracks[dept] = {};
+    
+    procs.forEach(pName => {
+        if (!job.tracks[dept][pName]) job.tracks[dept][pName] = { start: now, end: now };
+        // ถ้าขั้นตอนไหนกดเริ่มค้างไว้แต่ยังไม่จบ ให้จบด้วยเวลานี้
+        if (job.tracks[dept][pName].start && !job.tracks[dept][pName].end) {
+            job.tracks[dept][pName].end = now;
+        }
+        // ถ้าขั้นตอนไหนยังไม่ได้กดเริ่มเลย ให้ใส่เวลาเริ่มและจบเป็นตอนนี้เลย (Auto-fill)
+        if (!job.tracks[dept][pName].start) {
+            job.tracks[dept][pName].start = now;
+            job.tracks[dept][pName].end = now;
+        }
+    });
+
+    // แสดงผลทันที
+    renderDepartments();
+    renderDashboard();
+
+    // บันทึกลงฐานข้อมูล
+    await updateJobField(jobId, { tracks: job.tracks });
 }
 
     // ค้นหา function inlineEditTime แล้วแทนที่ด้วยโค้ดนี้ทั้งหมด
