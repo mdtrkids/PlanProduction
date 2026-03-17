@@ -942,52 +942,37 @@ async function markStart(jobId, dept, proc) {
     if (!t) return;
     if (t.start && !confirm('มีเวลาเริ่มอยู่แล้ว ต้องการแทนที่?')) return;
 
-    // เช็คว่าเป็น Process แรกสุดที่เริ่มทำหรือไม่ (เพื่อคำนวณแผนล็อค)
     const isFirstTimestamp = !Object.values(job.tracks[dept] || {}).some(p => p.start || p.end);
-    
-    // ตั้งเวลาเริ่มใน Local State ก่อน
     t.start = nowISO();
     
-    const updates = {};
-    updates.tracks = job.tracks;
+    const updates = { tracks: job.tracks };
 
     if (isFirstTimestamp) {
-        const allTimelines = {};
-        // ลำดับการคำนวณแผนก
-        const computationOrder = ['เบิก', 'STK', 'CTT', 'TUBE', 'STAMP', 'LASER', 'QC', 'PACK'];
-        const allDepts = state.settings.departments;
-        const orderedDepts = [...new Set([...computationOrder, ...allDepts])];
-
         try {
-            // คำนวณแผนของทุกแผนก
-            orderedDepts.forEach(d => {
-                if (allDepts.includes(d)) {
-                    allTimelines[d] = computePlanTimeline(d, job.date, 'cut', { precomputed: allTimelines });
+            const allTimelines = {};
+            // ลำดับแผนกที่ต้องคำนวณ (ห้ามสลับ)
+            const computationOrder = ['เบิก', 'STK', 'CTT', 'TUBE', 'STAMP', 'LASER', 'QC', 'PACK'];
+            
+            // คำนวณทีละแผนกตามลำดับเพื่อส่งต่อข้อมูล precomputed
+            computationOrder.forEach(dName => {
+                if (state.settings.departments.includes(dName)) {
+                    allTimelines[dName] = computePlanTimeline(dName, job.date, 'cut', { precomputed: allTimelines });
                 }
             });
 
             const currentPlan = allTimelines[dept]?.find(p => p.id === jobId);
-            
-            // ตรวจสอบความถูกต้องของแผนก่อนบันทึก (ป้องกัน NaN)
-            if (currentPlan && 
-                Number.isFinite(currentPlan.start) && 
-                Number.isFinite(currentPlan.end)) {
-                
+            if (currentPlan && Number.isFinite(currentPlan.start)) {
                 if (!job.locked_plans) job.locked_plans = {};
                 job.locked_plans[dept] = { start: currentPlan.start, end: currentPlan.end };
                 updates.locked_plans = job.locked_plans;
             }
         } catch (err) {
-            console.warn("Skipping locked_plans calculation due to error:", err);
-            // ถ้าคำนวณแผนพลาด ให้บันทึกแค่เวลาเริ่ม (tracks) อย่างเดียว งานจะได้ไม่ Reset
+            console.warn("Calculation safe-skip:", err);
         }
     }
 
-    // แสดงผล UI ทันที (Optimistic Update)
     renderDepartments();
     renderDashboard();
-
-    // ส่งข้อมูลไปบันทึก
     await updateJobField(jobId, updates);
 }
 
@@ -1084,23 +1069,21 @@ function getEffectiveFinishSec(dept, job, date, anchor, precomputed) {
 
 function getPlannedStartSecForDept(dept, job, date, anchor, extraOpts = {}) {
     const precomputed = extraOpts.precomputed || {};
+    // ถ้าไม่มีข้อมูล precomputed ให้คืนค่าเวลาเริ่มงานมาตรฐานแทนที่จะ Error
     if (!precomputed[dept]) {
-        console.error(`Timeline for ${dept} not precomputed.`);
-        return 0;
+        return parseTimeToMin(state.settings.dayStart) * 60;
     }
     const me = precomputed[dept].find(x => x.id === job.id);
-    return me ? me.start : 0;
+    return me ? me.start : parseTimeToMin(state.settings.dayStart) * 60;
 }
-// --- END NEW HELPERS ---
 
 function getPlannedEndSecForDept(dept, job, date, anchor, extraOpts = {}) {
     const precomputed = extraOpts.precomputed || {};
-     if (!precomputed[dept]) {
-        console.error(`Timeline for ${dept} not precomputed.`);
-        return 0;
+    if (!precomputed[dept]) {
+        return parseTimeToMin(state.settings.dayStart) * 60;
     }
     const me = precomputed[dept].find(x => x.id === job.id);
-    return me ? me.end : 0;
+    return me ? me.end : parseTimeToMin(state.settings.dayStart) * 60;
 }
 
 function adjustForBreaks(startSec, durationSec, breakPeriodsSec) {
@@ -1468,27 +1451,19 @@ async function finishFullDeptJob(jobId, dept) {
     
     const procs = (state.settings.processes[dept] || []).map(p => p.name);
     const now = nowISO();
-    
     if (!job.tracks[dept]) job.tracks[dept] = {};
     
     procs.forEach(pName => {
         if (!job.tracks[dept][pName]) job.tracks[dept][pName] = { start: now, end: now };
-        // ถ้าขั้นตอนไหนกดเริ่มค้างไว้แต่ยังไม่จบ ให้จบด้วยเวลานี้
-        if (job.tracks[dept][pName].start && !job.tracks[dept][pName].end) {
-            job.tracks[dept][pName].end = now;
-        }
-        // ถ้าขั้นตอนไหนยังไม่ได้กดเริ่มเลย ให้ใส่เวลาเริ่มและจบเป็นตอนนี้เลย (Auto-fill)
+        if (job.tracks[dept][pName].start && !job.tracks[dept][pName].end) job.tracks[dept][pName].end = now;
         if (!job.tracks[dept][pName].start) {
             job.tracks[dept][pName].start = now;
             job.tracks[dept][pName].end = now;
         }
     });
 
-    // แสดงผลทันที
     renderDepartments();
     renderDashboard();
-
-    // บันทึกลงฐานข้อมูล
     await updateJobField(jobId, { tracks: job.tracks });
 }
 
